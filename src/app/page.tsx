@@ -180,7 +180,7 @@ export default function Home() {
             className="mx-auto mb-6 h-32 w-auto"
           />
           <h1 className="text-4xl font-bold text-primary mb-2">
-            AI Portfolio Analysis & Advisory Tool
+            AI Portfolio Analysis Tool
           </h1>
           <p className="text-neutral-500 text-lg">
             Powered by BackPro AI
