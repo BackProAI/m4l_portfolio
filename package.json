@@ -9,9 +9,27 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.73.0",
+    "@react-email/components": "^1.0.7",
+    "@react-pdf/renderer": "^4.3.2",
+    "@tailwindcss/typography": "^0.5.19",
+    "clsx": "^2.1.1",
+    "colorjs.io": "^0.6.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.1.0",
+    "mammoth": "^1.11.0",
     "next": "16.1.6",
+    "pdfjs-dist": "^5.4.624",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "react-dropzone": "^14.4.0",
+    "react-email": "^5.2.8",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.7.0",
+    "resend": "^6.9.1",
+    "tailwind-merge": "^3.4.0",
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
