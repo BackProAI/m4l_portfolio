@@ -174,8 +174,13 @@ export default function Home() {
       <div className="mx-auto max-w-4xl space-y-8">
         {/* Header */}
         <div className="text-center">
+          <img 
+            src="/logo.png" 
+            alt="BackPro AI" 
+            className="mx-auto mb-6 h-32 w-auto"
+          />
           <h1 className="text-4xl font-bold text-primary mb-2">
-            Portfolio Analysis & Advisory Tool
+            AI Portfolio Analysis & Advisory Tool
           </h1>
           <p className="text-neutral-500 text-lg">
             Powered by BackPro AI
