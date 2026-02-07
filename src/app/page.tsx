@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { QuestionnaireSection } from '@/components/QuestionnaireSection';
 import { FileUploadZone } from '@/components/FileUploadZone';
@@ -92,11 +92,28 @@ export default function Home() {
     }
     
     setIsProcessing(false);
+
+    // Scroll to analyze button after file upload completes
+    const allCompleted = updatedFiles.every((f) => f.status === 'completed');
+    if (allCompleted && updatedFiles.length > 0) {
+      setTimeout(() => {
+        document.getElementById('analyse-button-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
   }, []);
 
   // Check if ready to analyse
   const canAnalyse = isQuestionnaireComplete && files.length > 0 && 
     files.every((f) => f.status === 'completed');
+
+  // Auto-scroll to file upload when questionnaire is complete
+  useEffect(() => {
+    if (isQuestionnaireComplete) {
+      setTimeout(() => {
+        document.getElementById('file-upload-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 300);
+    }
+  }, [isQuestionnaireComplete]);
 
   // Handle analysis submission
   const handleAnalyse = async () => {
@@ -174,7 +191,7 @@ export default function Home() {
 
         {/* File Upload Section */}
         {isQuestionnaireComplete && (
-          <Card>
+          <Card id="file-upload-section">
             <CardHeader>
               <CardTitle>Upload Portfolio Document</CardTitle>
               <CardDescription>
@@ -196,7 +213,7 @@ export default function Home() {
 
         {/* Analyse Button */}
         {canAnalyse && !analysisResult && !isAnalysing && (
-          <div className="flex justify-center">
+          <div id="analyse-button-section" className="flex justify-center">
             <Button
               size="lg"
               onClick={handleAnalyse}
