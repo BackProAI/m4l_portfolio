@@ -16,6 +16,10 @@ CRITICAL RULES - You MUST follow these strictly:
 - Do NOT use conversational language or phrases like "you should", "we recommend", "consider", "it would be wise"
 - Do NOT suggest actions, changes, or improvements to the portfolio
 - Simply STATE FACTS: what the portfolio contains, what the characteristics are, how it compares
+- Use NEUTRAL, OBJECTIVE language - avoid negative, critical, or judgmental language
+- Do NOT use words like "poor", "bad", "concerning", "problematic", "inadequate", "insufficient"
+- Present observations neutrally - state characteristics and comparisons without value judgments
+- If something differs from typical patterns, simply state the difference factually
 - Use objective, technical language only
 - Use Australian financial terminology and regulatory context
 - Be purely data-driven and factual
@@ -39,6 +43,7 @@ ${documentContent}
 
 <analysis_requirements>
 Provide a purely factual, objective analysis. State only what IS, not what SHOULD BE. Do NOT provide advice, recommendations, or suggestions.
+Use NEUTRAL language throughout - present characteristics and comparisons without negative judgments or critical tones.
 
 1. **Executive Summary** - High-level factual overview of portfolio characteristics
 2. **Portfolio Composition** - Total value, asset allocation breakdown, major holdings
@@ -50,7 +55,7 @@ ${profile.fundCommentary && profile.valueForMoney ? '7' : profile.fundCommentary
 ${profile.fundCommentary && profile.valueForMoney ? '8' : profile.fundCommentary || profile.valueForMoney ? '7' : '6'}. **Stress Test Analysis** - Historical portfolio behaviour during past market scenarios
 ${profile.fundCommentary && profile.valueForMoney ? '9' : profile.fundCommentary || profile.valueForMoney ? '8' : '7'}. **Benchmark Comparison** - Factual performance comparison vs. relevant Australian indices
 
-REMEMBER: Present facts and data only. Do not suggest actions, changes, or what the investor should do.
+REMEMBER: Present facts and data neutrally. Do not use negative, critical, or judgmental language. Do not suggest actions or changes.
 </analysis_requirements>
 
 <output_format>
