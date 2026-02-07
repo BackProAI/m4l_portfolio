@@ -9,15 +9,19 @@ export function buildAnalysisPrompt(
   documentContent: string
 ): { system: string; user: string } {
   // System prompt - Define Claude's role
-  const systemPrompt = `You are an expert Australian financial portfolio analyst with deep expertise in superannuation, managed funds, and investment strategy. Your role is to provide comprehensive, factual analysis of investment portfolios.
+  const systemPrompt = `You are an expert Australian financial portfolio analyst with deep expertise in superannuation, managed funds, and investment strategy. Your role is to provide purely factual analysis of investment portfolios.
 
-Key Guidelines:
-- Focus on ANALYSIS, not advice or recommendations
+CRITICAL RULES - You MUST follow these strictly:
+- Provide ONLY factual analysis and observations - NO advice, recommendations, or suggestions
+- Do NOT use conversational language or phrases like "you should", "we recommend", "consider", "it would be wise"
+- Do NOT suggest actions, changes, or improvements to the portfolio
+- Simply STATE FACTS: what the portfolio contains, what the characteristics are, how it compares
+- Use objective, technical language only
 - Use Australian financial terminology and regulatory context
-- Be objective and data-driven in your analysis
+- Be purely data-driven and factual
 - Use Australian English spelling (analyse, not analyze; favour, not favor)
 - Reference Australian indices and benchmarks where relevant
-- Provide factual assessment without personal opinions`;
+- No personal opinions, no subjective judgments, no forward-looking advice`;
 
   // Build user prompt with investor context
   const userPrompt = `
@@ -34,18 +38,19 @@ ${documentContent}
 </portfolio_documents>
 
 <analysis_requirements>
-Provide a comprehensive factual analysis (NOT advice or recommendations) covering:
+Provide a purely factual, objective analysis. State only what IS, not what SHOULD BE. Do NOT provide advice, recommendations, or suggestions.
 
-1. **Executive Summary** - High-level overview and key observations
+1. **Executive Summary** - High-level factual overview of portfolio characteristics
 2. **Portfolio Composition** - Total value, asset allocation breakdown, major holdings
-3. **Risk Profile Analysis** - Current risk level vs. stated investor type (${profile.investorType})
-4. **Alignment Assessment** - How portfolio characteristics align with investor profile
-${profile.fundCommentary ? `5. **Fund-by-Fund Analysis** - Detailed breakdown of each fund's characteristics, performance, and costs` : ''}
-${profile.valueForMoney ? `${profile.fundCommentary ? '6' : '5'}. **Fee Analysis** - Comprehensive cost breakdown and industry comparison` : ''}
-${profile.fundCommentary && profile.valueForMoney ? '7' : profile.fundCommentary || profile.valueForMoney ? '6' : '5'}. **Diversification Analysis** - Geographic, sector, and asset class distribution
-${profile.fundCommentary && profile.valueForMoney ? '8' : profile.fundCommentary || profile.valueForMoney ? '7' : '6'}. **Stress Test Analysis** - Portfolio behaviour in various market scenarios
-${profile.fundCommentary && profile.valueForMoney ? '9' : profile.fundCommentary || profile.valueForMoney ? '8' : '7'}. **Benchmark Comparison** - Performance vs. relevant Australian indices
+3. **Risk Profile Analysis** - Current risk level characteristics compared to ${profile.investorType} profile characteristics
+4. **Alignment Assessment** - Factual comparison of portfolio characteristics against investor profile
+${profile.fundCommentary ? `5. **Fund-by-Fund Analysis** - Factual breakdown of each fund's characteristics, historical performance, and costs` : ''}
+${profile.valueForMoney ? `${profile.fundCommentary ? '6' : '5'}. **Fee Analysis** - Factual cost breakdown and comparison to industry averages` : ''}
+${profile.fundCommentary && profile.valueForMoney ? '7' : profile.fundCommentary || profile.valueForMoney ? '6' : '5'}. **Diversification Analysis** - Geographic, sector, and asset class distribution facts
+${profile.fundCommentary && profile.valueForMoney ? '8' : profile.fundCommentary || profile.valueForMoney ? '7' : '6'}. **Stress Test Analysis** - Historical portfolio behaviour during past market scenarios
+${profile.fundCommentary && profile.valueForMoney ? '9' : profile.fundCommentary || profile.valueForMoney ? '8' : '7'}. **Benchmark Comparison** - Factual performance comparison vs. relevant Australian indices
 
+REMEMBER: Present facts and data only. Do not suggest actions, changes, or what the investor should do.
 </analysis_requirements>
 
 <output_format>
