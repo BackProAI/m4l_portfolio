@@ -54,6 +54,11 @@ PERFORMANCE DATA EXTRACTION:
 - Present performance and volatility data year by year as found in the documents
 - If performance/volatility data is not available for a holding, omit those fields from the output`;
 
+  const suitabilitySectionNumber = profile.fundCommentary ? 6 : 5;
+  const diversificationSectionNumber = suitabilitySectionNumber + 1;
+  const stressTestSectionNumber = suitabilitySectionNumber + 2;
+  const benchmarkSectionNumber = suitabilitySectionNumber + 3;
+
   // Build user prompt with investor context
   const userPrompt = `
 <investor_profile>
@@ -104,10 +109,12 @@ ${profile.fundCommentary ? `5. **Holdings Analysis** - Split into three subsecti
    - Current holding value and percentage of portfolio
    - Historical performance data if available in documents
    - Risk characteristics` : ''}
-${profile.valueForMoney ? `${profile.fundCommentary ? '6' : '5'}. **Portfolio Suitability Conclusion** - Brief factual determination of whether portfolio characteristics align with investor profile (risk tolerance, time horizon, phase, and objectives)` : ''}
-${profile.fundCommentary && profile.valueForMoney ? '7' : profile.fundCommentary || profile.valueForMoney ? '6' : '5'}. **Diversification Analysis** - Geographic, sector, and asset class distribution facts
-${profile.fundCommentary && profile.valueForMoney ? '8' : profile.fundCommentary || profile.valueForMoney ? '7' : '6'}. **Stress Test Analysis** - Historical portfolio behaviour during past market scenarios
-${profile.fundCommentary && profile.valueForMoney ? '9' : profile.fundCommentary || profile.valueForMoney ? '8' : '7'}. **Benchmark Comparison** - Factual performance comparison vs. relevant Australian indices
+${profile.valueForMoney
+  ? `${suitabilitySectionNumber}. **Portfolio Suitability Conclusion** - Provide a brief factual determination of whether portfolio characteristics align with the investor's risk tolerance (${profile.investorType}), time horizon (based on ${profile.ageRange}), current phase (${profile.phase}), and objectives. State the conclusion factually (e.g., "characteristics align", "more aggressive than profile") without offering recommendations.`
+  : `${suitabilitySectionNumber}. **Portfolio Profile Comparison** - Compare the portfolio's characteristics against the investor's risk tolerance (${profile.investorType}), time horizon (based on ${profile.ageRange}), current phase (${profile.phase}), and inferred objectives. Describe similarities or differences factually and neutrally without declaring suitability or suggesting changes.`}
+${diversificationSectionNumber}. **Diversification Analysis** - Geographic, sector, and asset class distribution facts
+${stressTestSectionNumber}. **Stress Test Analysis** - Historical portfolio behaviour during past market scenarios
+${benchmarkSectionNumber}. **Benchmark Comparison** - Factual performance comparison vs. relevant Australian indices
 
 REMEMBER: Present facts and data neutrally. Do not use negative, critical, or judgmental language. Do not suggest actions or changes.
 </analysis_requirements>
