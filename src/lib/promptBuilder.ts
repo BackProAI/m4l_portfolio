@@ -25,7 +25,34 @@ CRITICAL RULES - You MUST follow these strictly:
 - Be purely data-driven and factual
 - Use Australian English spelling (analyse, not analyze; favour, not favor)
 - Reference Australian indices and benchmarks where relevant
-- No personal opinions, no subjective judgments, no forward-looking advice`;
+- No personal opinions, no subjective judgments, no forward-looking advice
+
+HOLDINGS CLASSIFICATION REQUIREMENTS:
+When analysing individual holdings in the portfolio, classify each into one of three categories:
+
+1. DIRECT SHARES (type: "direct-share")
+   - Individual company stocks listed on exchanges (primarily ASX)
+   - Identifiable by: Ticker codes (e.g., CBA, BHP, WBC), individual company names
+   - Examples: "Commonwealth Bank", "BHP Group", "Westpac", "CSL Limited", "Telstra"
+   - For each direct share: Provide a brief factual description of what the company does (use your knowledge)
+
+2. MANAGED FUNDS (type: "managed-fund")
+   - Investment funds managed by fund managers, including index funds
+   - Identifiable by: Fund names containing words like "Fund", "Index", "Trust", "Portfolio", fund manager names
+   - Examples: "Vanguard High Growth Index", "Colonial FirstChoice Balanced", "Australian Super Growth", "HOSTPLUS Balanced"
+   - For each managed fund: Provide a factual description of the fund's investment strategy and what it invests in
+
+3. SECURITIES (type: "security")
+   - Other investment types: Bonds, ETFs, debentures, fixed income securities, listed investment companies
+   - Identifiable by: Words like "Bond", "Note", "Debenture", "ETF", "Fixed Income", "LIC"
+   - Examples: "Commonwealth Bank Bonds", "Vanguard Australian Shares ETF (VAS)", "Australian Government Bonds"
+   - For each security: Provide a brief factual description of the security type and characteristics
+
+PERFORMANCE DATA EXTRACTION:
+- Extract historical performance data (annual returns) for each holding from the portfolio documents
+- Extract volatility data (standard deviation) for each holding if available in the documents
+- Present performance and volatility data year by year as found in the documents
+- If performance/volatility data is not available for a holding, omit those fields from the output`;
 
   // Build user prompt with investor context
   const userPrompt = `
@@ -34,7 +61,10 @@ CRITICAL RULES - You MUST follow these strictly:
 <phase>${profile.phase}</phase>
 <age_range>${profile.ageRange}</age_range>
 <fund_commentary_requested>${profile.fundCommentary ? 'yes' : 'no'}</fund_commentary_requested>
-<value_for_money_requested>${profile.valueForMoney ? 'yes' : 'no'}</value_for_money_requested>
+<suitability_conclusion_requested>${profile.valueForMoney ? 'yes' : 'no'}</suitability_conclusion_requested>
+<is_industry_super_fund>${profile.isIndustrySuperFund ? 'yes' : 'no'}</is_industry_super_fund>
+${profile.isIndustrySuperFund ? `<industry_super_fund_name>${profile.industrySuperFundName}</industry_super_fund_name>` : ''}
+${profile.isIndustrySuperFund ? `<industry_super_fund_risk_profile>${profile.industrySuperFundRiskProfile}</industry_super_fund_risk_profile>` : ''}
 </investor_profile>
 
 <portfolio_documents>
@@ -49,8 +79,32 @@ Use NEUTRAL language throughout - present characteristics and comparisons withou
 2. **Portfolio Composition** - Total value, asset allocation breakdown, major holdings
 3. **Risk Profile Analysis** - Current risk level characteristics compared to ${profile.investorType} profile characteristics
 4. **Alignment Assessment** - Factual comparison of portfolio characteristics against investor profile
-${profile.fundCommentary ? `5. **Fund-by-Fund Analysis** - Factual breakdown of each fund's characteristics, historical performance, and costs` : ''}
-${profile.valueForMoney ? `${profile.fundCommentary ? '6' : '5'}. **Fee Analysis** - Factual cost breakdown and comparison to industry averages` : ''}
+${profile.fundCommentary ? `5. **Holdings Analysis** - Split into three subsections based on holding types:
+   
+   **5a. Direct Shares Analysis**
+   For each company stock, provide:
+   - Company name and ticker symbol (if available)
+   - Brief factual description of what the company does (1-2 sentences)
+   - Current holding value and percentage of portfolio
+   - Historical performance: Annual returns by year (extract from documents)
+   - Volatility: Standard deviation by year (extract from documents if available)
+   
+   **5b. Managed Funds Analysis**
+   For each managed fund, provide:
+   - Fund name and fund manager
+   - Factual description of the fund's investment strategy and asset allocation (1-2 sentences)
+   - Current holding value and percentage of portfolio
+   - Historical performance: Annual returns by year (extract from documents)
+   - Volatility: Standard deviation by year (extract from documents if available)
+   
+   **5c. Securities Analysis**
+   For each other security (bonds, ETFs, etc.), provide:
+   - Security name and type
+   - Brief factual description of the security and its characteristics (1-2 sentences)
+   - Current holding value and percentage of portfolio
+   - Historical performance data if available in documents
+   - Risk characteristics` : ''}
+${profile.valueForMoney ? `${profile.fundCommentary ? '6' : '5'}. **Portfolio Suitability Conclusion** - Brief factual determination of whether portfolio characteristics align with investor profile (risk tolerance, time horizon, phase, and objectives)` : ''}
 ${profile.fundCommentary && profile.valueForMoney ? '7' : profile.fundCommentary || profile.valueForMoney ? '6' : '5'}. **Diversification Analysis** - Geographic, sector, and asset class distribution facts
 ${profile.fundCommentary && profile.valueForMoney ? '8' : profile.fundCommentary || profile.valueForMoney ? '7' : '6'}. **Stress Test Analysis** - Historical portfolio behaviour during past market scenarios
 ${profile.fundCommentary && profile.valueForMoney ? '9' : profile.fundCommentary || profile.valueForMoney ? '8' : '7'}. **Benchmark Comparison** - Factual performance comparison vs. relevant Australian indices
@@ -79,6 +133,41 @@ CRITICAL: You must respond with ONLY valid JSON in this EXACT format (no markdow
     "fees": [
       {"category": "Management Fees", "amount": 3500, "percentage": 0.70},
       {"category": "Admin Fees", "amount": 500, "percentage": 0.10}
+    ],
+    "holdingsPerformance": [
+      {
+        "name": "Commonwealth Bank",
+        "type": "direct-share",
+        "description": "CBA is Australia's largest bank providing retail, business, and institutional banking services.",
+        "ticker": "CBA",
+        "currentValue": 50000,
+        "percentage": 10,
+        "performance": [
+          {"year": 2024, "return": 12.5},
+          {"year": 2023, "return": 8.3},
+          {"year": 2022, "return": -2.1}
+        ],
+        "volatility": [
+          {"year": 2024, "standardDeviation": 15.2},
+          {"year": 2023, "standardDeviation": 18.1},
+          {"year": 2022, "standardDeviation": 22.3}
+        ]
+      },
+      {
+        "name": "Vanguard High Growth Index",
+        "type": "managed-fund",
+        "description": "Diversified fund investing approximately 90% in growth assets (shares and property) and 10% in defensive assets.",
+        "currentValue": 100000,
+        "percentage": 20,
+        "performance": [
+          {"year": 2024, "return": 15.2},
+          {"year": 2023, "return": 10.7}
+        ],
+        "volatility": [
+          {"year": 2024, "standardDeviation": 12.5},
+          {"year": 2023, "standardDeviation": 14.2}
+        ]
+      }
     ]
   }
 }
@@ -88,6 +177,9 @@ Instructions:
 - Determine current risk profile based on asset allocation
 - Calculate total fees from document data
 - Use only asset classes present in the actual portfolio
+- Include holdingsPerformance array ONLY if fund commentary was requested (fundCommentary = yes)
+- For each holding: classify type, provide description, extract performance/volatility data from documents
+- If performance or volatility data is not in documents, omit those arrays for that holding
 - Respond with pure JSON only (no markdown formatting around it)
 </output_format>
 `;

@@ -31,6 +31,9 @@ export interface InvestorProfile {
   ageRange: AgeRange | '';
   fundCommentary: boolean | undefined;
   valueForMoney: boolean | undefined;
+  isIndustrySuperFund: boolean | undefined; // Question 6: Is this an industry super fund?
+  industrySuperFundName?: string; // Required if isIndustrySuperFund = true
+  industrySuperFundRiskProfile?: InvestorType | ''; // Required if isIndustrySuperFund = true
 }
 
 // File Upload Types
@@ -67,6 +70,7 @@ export interface ChartData {
   riskComparison: RiskComparison;
   fees: FeeBreakdown[];
   portfolioValue: number;
+  holdingsPerformance?: HoldingPerformance[]; // Optional: Detailed holdings analysis with performance data
 }
 
 export interface AllocationItem {
@@ -85,6 +89,32 @@ export interface FeeBreakdown {
   category: string; // Fee category (e.g., "Management Fees", "Admin Fees", "Performance Fees")
   amount: number; // Annual dollar amount
   percentage: number; // Percentage of portfolio
+}
+
+// Holdings Performance Types
+// ============================================================================
+
+export type HoldingType = 'direct-share' | 'managed-fund' | 'security';
+
+export interface YearlyPerformance {
+  year: number; // Calendar year (e.g., 2024, 2023)
+  return: number; // Annual return percentage (e.g., 12.5 for 12.5%)
+}
+
+export interface YearlyVolatility {
+  year: number; // Calendar year (e.g., 2024, 2023)
+  standardDeviation: number; // Annual standard deviation (e.g., 15.2 for 15.2%)
+}
+
+export interface HoldingPerformance {
+  name: string; // Name of the holding (e.g., "Commonwealth Bank", "Vanguard High Growth Index")
+  type: HoldingType; // Type of holding: direct share, managed fund, or other security
+  description: string; // Business/investment description (fetched from web or Claude's knowledge)
+  ticker?: string; // Optional ticker symbol for direct shares (e.g., "CBA.AX")
+  currentValue: number; // Current dollar value of this holding
+  percentage: number; // Percentage of total portfolio
+  performance: YearlyPerformance[]; // Historical performance data by year
+  volatility: YearlyVolatility[]; // Volatility metrics by year
 }
 
 // API Request/Response Types

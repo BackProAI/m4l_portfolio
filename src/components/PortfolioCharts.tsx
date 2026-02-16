@@ -3,7 +3,8 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import type { ChartData, InvestorType } from '@/types';
+import { HoldingsPerformanceCharts } from '@/components/HoldingsPerformanceCharts';
+import type { ChartData, InvestorType, HoldingPerformance } from '@/types';
 
 // ============================================================================
 // Portfolio Charts - Visualizations for portfolio data
@@ -23,9 +24,10 @@ const CHART_COLORS = [
 
 interface PortfolioChartsProps {
   chartData: ChartData;
+  holdingsPerformance?: HoldingPerformance[];
 }
 
-export function PortfolioCharts({ chartData }: PortfolioChartsProps) {
+export function PortfolioCharts({ chartData, holdingsPerformance }: PortfolioChartsProps) {
   return (
     <div className="space-y-6">
       {/* Portfolio Value Summary */}
@@ -220,6 +222,14 @@ export function PortfolioCharts({ chartData }: PortfolioChartsProps) {
           </Card>
         )}
       </div>
+
+      {/* Holdings Performance Section */}
+      {holdingsPerformance && holdingsPerformance.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-2xl font-bold text-neutral-900 mb-6">Holdings Analysis</h2>
+          <HoldingsPerformanceCharts holdings={holdingsPerformance} />
+        </div>
+      )}
     </div>
   );
 }

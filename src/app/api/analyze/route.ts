@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { analysePortfolio } from '@/lib/claudeClient';
+import { analysePortfolioWithTools } from '@/lib/claudeClient';
 import { buildAnalysisPrompt, combineDocumentContents } from '@/lib/promptBuilder';
 import type { InvestorProfile, FileType } from '@/types';
 
@@ -17,7 +17,27 @@ const AnalyseRequestSchema = z.object({
     ageRange: z.enum(['Under 40', '40-60', '60-80', '80+']),
     fundCommentary: z.boolean(),
     valueForMoney: z.boolean(),
-  }),
+    isIndustrySuperFund: z.boolean(),
+    industrySuperFundName: z.string().optional(),
+    industrySuperFundRiskProfile: z.enum(['High Growth', 'Growth', 'Balanced', 'Conservative', 'Defensive', '']).optional(),
+  }).refine(
+    (data) => {
+      // If industry super fund is true, name and risk profile are required
+      if (data.isIndustrySuperFund) {
+        return (
+          data.industrySuperFundName &&
+          data.industrySuperFundName.trim() !== '' &&
+          data.industrySuperFundRiskProfile &&
+          ['High Growth', 'Growth', 'Balanced', 'Conservative', 'Defensive'].includes(data.industrySuperFundRiskProfile)
+        );
+      }
+      return true;
+    },
+    {
+      message: 'Industry super fund name and risk profile are required when industry super fund is selected',
+      path: ['industrySuperFundName'],
+    }
+  ),
   files: z.array(
     z.object({
       fileName: z.string(),
@@ -73,8 +93,8 @@ export async function POST(request: NextRequest) {
       ? parseFloat(process.env.CLAUDE_TEMPERATURE)
       : 0.3;
 
-    // Call Claude API
-    const result = await analysePortfolio({
+    // Call Claude API with tool use support
+    const result = await analysePortfolioWithTools({
       systemPrompt: system,
       userPrompt: user,
       maxTokens,

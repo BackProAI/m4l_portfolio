@@ -23,6 +23,9 @@ export default function Home() {
     ageRange: '',
     fundCommentary: undefined,
     valueForMoney: undefined,
+    isIndustrySuperFund: undefined,
+    industrySuperFundName: undefined,
+    industrySuperFundRiskProfile: undefined,
   });
 
   const [isQuestionnaireComplete, setIsQuestionnaireComplete] = useState(false);
@@ -30,6 +33,9 @@ export default function Home() {
   // State for uploaded files
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // State for pasted content (alternative to file upload)
+  const [pastedContent, setPastedContent] = useState<string>('');
 
   // State for analysis results
   const [isAnalysing, setIsAnalysing] = useState(false);
@@ -103,8 +109,11 @@ export default function Home() {
   }, []);
 
   // Check if ready to analyse
-  const canAnalyse = isQuestionnaireComplete && files.length > 0 && 
-    files.every((f) => f.status === 'completed');
+  const hasFiles = files.length > 0 && files.every((f) => f.status === 'completed');
+  const hasPastedContent = pastedContent.trim().length > 0;
+  const hasConflict = hasFiles && hasPastedContent;
+  
+  const canAnalyse = isQuestionnaireComplete && (hasFiles || hasPastedContent) && !hasConflict;
 
   // Auto-scroll to file upload when questionnaire is complete
   useEffect(() => {
@@ -128,13 +137,29 @@ export default function Home() {
 
     try {
       // Prepare request payload
-      const requestData = {
-        profile,
-        files: files.map((f) => ({
+      let documentsToSend;
+      
+      if (hasPastedContent) {
+        // Use pasted content as a "file"
+        documentsToSend = [
+          {
+            fileName: 'pasted-content.txt',
+            content: pastedContent,
+            type: 'pdf', // Treat as pdf for API validation
+          },
+        ];
+      } else {
+        // Use uploaded files
+        documentsToSend = files.map((f) => ({
           fileName: f.file.name,
           content: f.parsedContent || '',
           type: f.type,
-        })),
+        }));
+      }
+      
+      const requestData = {
+        profile,
+        files: documentsToSend,
       };
 
       // Call the analyse API
@@ -208,6 +233,8 @@ export default function Home() {
               <FileUploadZone
                 files={files}
                 onFilesChange={handleFilesChange}
+                pastedContent={pastedContent}
+                onPastedContentChange={setPastedContent}
                 disabled={isProcessing}
                 maxFiles={1}
                 maxSizeMB={10}
@@ -248,7 +275,10 @@ export default function Home() {
           <div id="results" className="space-y-6">
             {/* Charts Section */}
             <div id="portfolio-charts">
-              <PortfolioCharts chartData={analysisResult.chartData} />
+              <PortfolioCharts 
+                chartData={analysisResult.chartData} 
+                holdingsPerformance={analysisResult.chartData.holdingsPerformance}
+              />
             </div>
 
             {/* Detailed Analysis */}

@@ -30,10 +30,27 @@ export function QuestionnaireSection({
     if (profile.ageRange) count++;
     if (typeof profile.fundCommentary === 'boolean') count++;
     if (typeof profile.valueForMoney === 'boolean') count++;
+    if (typeof profile.isIndustrySuperFund === 'boolean') {
+      count++;
+      // If industry super fund is Yes, check conditional fields
+      if (profile.isIndustrySuperFund) {
+        if (profile.industrySuperFundName && profile.industrySuperFundName.trim() !== '') count++;
+        if (profile.industrySuperFundRiskProfile && ['High Growth', 'Growth', 'Balanced', 'Conservative', 'Defensive'].includes(profile.industrySuperFundRiskProfile)) count++;
+      }
+    }
     return count;
   }, [profile]);
 
-  const isComplete = completedCount === 6;
+  // Calculate total required fields
+  const totalFields = React.useMemo(() => {
+    let total = 7; // Base questions: name, investorType, phase, ageRange, fundCommentary, valueForMoney, isIndustrySuperFund
+    if (profile.isIndustrySuperFund === true) {
+      total += 2; // Add conditional fields: industrySuperFundName, industrySuperFundRiskProfile
+    }
+    return total;
+  }, [profile.isIndustrySuperFund]);
+
+  const isComplete = completedCount === totalFields;
 
   // Notify parent when completion status changes
   React.useEffect(() => {
@@ -64,7 +81,7 @@ export function QuestionnaireSection({
             variant={isComplete ? 'success' : 'warning'}
             size="lg"
           >
-            {completedCount}/6 Complete
+            {completedCount}/{totalFields} Complete
           </Badge>
         </div>
       </CardHeader>
@@ -153,10 +170,10 @@ export function QuestionnaireSection({
             <option value="no">No</option>
           </Select>
 
-          {/* Question 5: Value for Money - Full width span */}
+          {/* Question 5: Portfolio Suitability - Full width span */}
           <div className="md:col-span-2">
             <Select
-              label="Are these funds value for money?"
+              label="Is this a suitable portfolio for me?"
               required
               value={
                 profile.valueForMoney === true
@@ -177,6 +194,65 @@ export function QuestionnaireSection({
               <option value="no">No</option>
             </Select>
           </div>
+
+          {/* Question 6: Industry Super Fund - Full width span */}
+          <div className="md:col-span-2">
+            <Select
+              label="Is this portfolio from an industry super fund?"
+              required
+              value={
+                profile.isIndustrySuperFund === true
+                  ? 'yes'
+                  : profile.isIndustrySuperFund === false
+                  ? 'no'
+                  : ''
+              }
+              onChange={(e) =>
+                handleChange(
+                  'isIndustrySuperFund',
+                  e.target.value === 'yes' ? true : e.target.value === 'no' ? false : undefined
+                )
+              }
+            >
+              <option value="">Select an option...</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </Select>
+          </div>
+
+          {/* Conditional fields shown when Industry Super Fund = Yes */}
+          {profile.isIndustrySuperFund === true && (
+            <>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-neutral-700 mb-2">
+                  Name of Industry Super Fund <span className="text-error">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., HOSTPLUS, Australian Super, Cbus"
+                  value={profile.industrySuperFundName || ''}
+                  onChange={(e) => handleChange('industrySuperFundName', e.target.value)}
+                  className="w-full px-4 py-2.5 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Select
+                  label="Risk Profile of Your Industry Super Fund Investment"
+                  required
+                  value={profile.industrySuperFundRiskProfile || ''}
+                  onChange={(e) => handleChange('industrySuperFundRiskProfile', e.target.value)}
+                >
+                  <option value="">Select a risk profile...</option>
+                  <option value="High Growth">High Growth</option>
+                  <option value="Growth">Growth</option>
+                  <option value="Balanced">Balanced</option>
+                  <option value="Conservative">Conservative</option>
+                  <option value="Defensive">Defensive</option>
+                </Select>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Completion indicator */}
