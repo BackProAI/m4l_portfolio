@@ -52,6 +52,9 @@ export function HoldingsPerformanceCharts({ holdings }: HoldingsPerformanceChart
   // Transform data for volatility comparison chart
   const volatilityData = prepareVolatilityComparisonData(holdings);
 
+  // Compute per-holding volatility (std dev) for summary visualization
+  const volatilitySummary = prepareVolatilitySummaryData(holdings);
+
   // Transform data for risk-return scatter plot
   const riskReturnData = prepareRiskReturnData(holdings);
 
@@ -154,6 +157,27 @@ export function HoldingsPerformanceCharts({ holdings }: HoldingsPerformanceChart
         </Card>
       )}
 
+      {/* Volatility Summary (Std Dev) */}
+      {volatilitySummary.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Volatility by Holding (Std Dev)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={volatilitySummary} margin={{ left: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" interval={0} angle={-25} textAnchor="end" height={120} />
+                <YAxis label={{ value: 'Std Dev (%)', angle: -90, position: 'insideLeft' }} />
+                <Tooltip formatter={(value: any) => `${Number(value).toFixed(2)}%`} />
+                <Legend />
+                <Bar dataKey="volatility" name="Std Dev" fill={CHART_COLORS.accent} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Risk-Return Scatter Plot */}
       {riskReturnData.length > 0 && (
         <Card>
@@ -240,9 +264,10 @@ function HoldingsTable({ holdings }: HoldingsTableProps) {
         </thead>
         <tbody>
           {holdings.map((holding) => {
-            const avgReturn = calculateAverage(holding.performance.map(p => p.return));
-            const avgVolatility = calculateAverage(holding.volatility.map(v => v.standardDeviation));
-            
+            const performanceEntries = holding.performance ?? [];
+            const avgReturn = calculateAverage(performanceEntries.map(p => p.return));
+            const displayVolatility = getHoldingVolatilityValue(holding);
+
             return (
               <tr key={holding.name} className="border-b border-neutral-200 hover:bg-neutral-50">
                 <td className="p-3 font-medium text-neutral-900">
@@ -261,10 +286,10 @@ function HoldingsTable({ holdings }: HoldingsTableProps) {
                   {holding.percentage.toFixed(1)}%
                 </td>
                 <td className={`p-3 text-right font-medium ${avgReturn !== null && avgReturn >= 0 ? 'text-success' : 'text-error'}`}>
-                  {avgReturn ? `${avgReturn.toFixed(2)}%` : 'N/A'}
+                  {avgReturn !== null ? `${avgReturn.toFixed(2)}%` : 'N/A'}
                 </td>
                 <td className="p-3 text-right text-neutral-700">
-                  {avgVolatility ? `${avgVolatility.toFixed(2)}%` : 'N/A'}
+                  {displayVolatility !== null && displayVolatility > 0 ? `${displayVolatility.toFixed(2)}%` : 'N/A'}
                 </td>
               </tr>
             );
@@ -281,8 +306,10 @@ interface HoldingDetailCardProps {
 }
 
 function HoldingDetailCard({ holding, color }: HoldingDetailCardProps) {
-  const avgReturn = calculateAverage(holding.performance.map(p => p.return));
-  const avgVolatility = calculateAverage(holding.volatility.map(v => v.standardDeviation));
+  const performanceEntries = holding.performance ?? [];
+  const volatilityEntries = holding.volatility ?? [];
+  const avgReturn = calculateAverage(performanceEntries.map(p => p.return));
+  const displayVolatility = getHoldingVolatilityValue(holding);
 
   return (
     <Card>
@@ -321,23 +348,23 @@ function HoldingDetailCard({ holding, color }: HoldingDetailCardProps) {
             <div>
               <p className="text-xs text-neutral-500 mb-1">Avg Return</p>
               <p className={`text-lg font-semibold ${avgReturn !== null && avgReturn >= 0 ? 'text-success' : 'text-error'}`}>
-                {avgReturn ? `${avgReturn.toFixed(2)}%` : 'N/A'}
+                {avgReturn !== null ? `${avgReturn.toFixed(2)}%` : 'N/A'}
               </p>
             </div>
             <div>
               <p className="text-xs text-neutral-500 mb-1">Avg Volatility</p>
               <p className="text-lg font-semibold text-neutral-900">
-                {avgVolatility ? `${avgVolatility.toFixed(2)}%` : 'N/A'}
+                {displayVolatility !== null && displayVolatility > 0 ? `${displayVolatility.toFixed(2)}%` : 'N/A'}
               </p>
             </div>
           </div>
 
           {/* Performance History */}
-          {holding.performance.length > 0 && (
+          {performanceEntries.length > 0 && (
             <div>
               <p className="text-sm font-semibold text-neutral-700 mb-2">Performance History</p>
               <div className="space-y-1">
-                {holding.performance.map((perf) => (
+                {performanceEntries.map((perf) => (
                   <div key={perf.year} className="flex justify-between text-sm">
                     <span className="text-neutral-600">{perf.year}</span>
                     <span className={`font-medium ${perf.return >= 0 ? 'text-success' : 'text-error'}`}>
@@ -350,11 +377,11 @@ function HoldingDetailCard({ holding, color }: HoldingDetailCardProps) {
           )}
 
           {/* Volatility History */}
-          {holding.volatility.length > 0 && (
+          {volatilityEntries.length > 0 && (
             <div>
               <p className="text-sm font-semibold text-neutral-700 mb-2">Volatility History</p>
               <div className="space-y-1">
-                {holding.volatility.map((vol) => (
+                {volatilityEntries.map((vol) => (
                   <div key={vol.year} className="flex justify-between text-sm">
                     <span className="text-neutral-600">{vol.year}</span>
                     <span className="font-medium text-neutral-700">
@@ -392,7 +419,8 @@ function CustomScatterTooltip({ active, payload }: any) {
 function preparePerformanceComparisonData(holdings: HoldingPerformance[]) {
   const allYears = new Set<number>();
   holdings.forEach(holding => {
-    holding.performance.forEach(perf => allYears.add(perf.year));
+    const performanceEntries = holding.performance ?? [];
+    performanceEntries.forEach(perf => allYears.add(perf.year));
   });
 
   const sortedYears = Array.from(allYears).sort((a, b) => a - b);
@@ -400,7 +428,8 @@ function preparePerformanceComparisonData(holdings: HoldingPerformance[]) {
   return sortedYears.map(year => {
     const dataPoint: any = { year };
     holdings.forEach(holding => {
-      const perf = holding.performance.find(p => p.year === year);
+      const performanceEntries = holding.performance ?? [];
+      const perf = performanceEntries.find(p => p.year === year);
       dataPoint[holding.name] = perf ? perf.return : null;
     });
     return dataPoint;
@@ -410,7 +439,8 @@ function preparePerformanceComparisonData(holdings: HoldingPerformance[]) {
 function prepareVolatilityComparisonData(holdings: HoldingPerformance[]) {
   const allYears = new Set<number>();
   holdings.forEach(holding => {
-    holding.volatility.forEach(vol => allYears.add(vol.year));
+    const volatilityEntries = holding.volatility ?? [];
+    volatilityEntries.forEach(vol => allYears.add(vol.year));
   });
 
   const sortedYears = Array.from(allYears).sort((a, b) => a - b);
@@ -418,30 +448,86 @@ function prepareVolatilityComparisonData(holdings: HoldingPerformance[]) {
   return sortedYears.map(year => {
     const dataPoint: any = { year };
     holdings.forEach(holding => {
-      const vol = holding.volatility.find(v => v.year === year);
+      const volatilityEntries = holding.volatility ?? [];
+      const vol = volatilityEntries.find(v => v.year === year);
       dataPoint[holding.name] = vol ? vol.standardDeviation : null;
     });
     return dataPoint;
   });
 }
 
-function prepareRiskReturnData(holdings: HoldingPerformance[]) {
+function prepareVolatilitySummaryData(holdings: HoldingPerformance[]) {
   return holdings
-    .filter(holding => holding.performance.length > 0 && holding.volatility.length > 0)
     .map(holding => {
-      const avgReturn = calculateAverage(holding.performance.map(p => p.return));
-      const avgVolatility = calculateAverage(holding.volatility.map(v => v.standardDeviation));
-      
+      const value = getHoldingVolatilityValue(holding);
+
+      if (value === null || value <= 0) {
+        return null;
+      }
+
       return {
         name: holding.name,
-        return: avgReturn || 0,
-        volatility: avgVolatility || 0,
+        volatility: Math.abs(value),
       };
-    });
+    })
+    .filter((item): item is { name: string; volatility: number } => Boolean(item));
+}
+
+function prepareRiskReturnData(holdings: HoldingPerformance[]) {
+  return holdings
+    .map(holding => {
+      const performanceEntries = holding.performance ?? [];
+      if (performanceEntries.length === 0) {
+        return null;
+      }
+
+      const avgReturn = calculateAverage(performanceEntries.map(p => p.return));
+      if (avgReturn === null) {
+        return null;
+      }
+
+      const volatilityValue = getHoldingVolatilityValue(holding);
+      if (volatilityValue === null || volatilityValue <= 0) {
+        return null;
+      }
+
+      return {
+        name: holding.name,
+        return: avgReturn,
+        volatility: Math.abs(volatilityValue),
+      };
+    })
+    .filter((item): item is { name: string; return: number; volatility: number } => Boolean(item));
+}
+
+function getHoldingVolatilityValue(holding: HoldingPerformance): number | null {
+  const volatilityEntries = holding.volatility ?? [];
+  if (volatilityEntries.length > 0) {
+    const observed = calculateAverage(volatilityEntries.map(v => v.standardDeviation));
+    if (observed !== null && observed > 0) {
+      return observed;
+    }
+  }
+
+  const performanceEntries = holding.performance ?? [];
+  if (performanceEntries.length < 2) {
+    return null;
+  }
+
+  const computed = calculateStandardDeviation(performanceEntries.map(p => p.return));
+  return computed !== null && computed > 0 ? computed : null;
 }
 
 function calculateAverage(values: number[]): number | null {
   if (values.length === 0) return null;
   const sum = values.reduce((acc, val) => acc + val, 0);
   return sum / values.length;
+}
+
+function calculateStandardDeviation(values: number[]): number | null {
+  if (values.length < 2) return null;
+  const mean = calculateAverage(values);
+  if (mean === null) return null;
+  const variance = values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / (values.length - 1);
+  return Math.sqrt(variance);
 }

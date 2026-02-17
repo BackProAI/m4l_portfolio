@@ -1,6 +1,6 @@
 'use client';
 
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { HoldingsPerformanceCharts } from '@/components/HoldingsPerformanceCharts';
@@ -180,47 +180,6 @@ export function PortfolioCharts({ chartData, holdingsPerformance }: PortfolioCha
           </CardContent>
         </Card>
 
-        {/* Fee Breakdown Chart */}
-        {chartData.fees && chartData.fees.length > 0 && (
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Fee Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={chartData.fees}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="category" />
-                  <YAxis />
-                  <Tooltip 
-                    formatter={(value: any, name: any) => 
-                      name === 'amount' 
-                        ? [`$${Number(value || 0).toLocaleString('en-AU')}`, 'Annual Cost']
-                        : [`${Number(value || 0)}%`, 'Percentage']
-                    }
-                  />
-                  <Bar dataKey="amount" fill={CHART_COLORS[0]} name="amount" />
-                </BarChart>
-              </ResponsiveContainer>
-              
-              {/* Fee Summary */}
-              <div className="mt-4 p-4 bg-neutral-50 rounded-lg">
-                <div className="flex justify-between items-center">
-                  <span className="font-semibold text-neutral-800">Total Annual Fees</span>
-                  <span className="text-xl font-bold text-primary">
-                    ${chartData.fees.reduce((sum, fee) => sum + fee.amount, 0).toLocaleString('en-AU')}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center mt-2 text-sm">
-                  <span className="text-neutral-600">Total Fee Percentage</span>
-                  <span className="font-medium text-neutral-800">
-                    {chartData.fees.reduce((sum, fee) => sum + fee.percentage, 0).toFixed(2)}%
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
 
       {/* Holdings Performance Section */}

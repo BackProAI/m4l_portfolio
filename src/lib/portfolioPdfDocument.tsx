@@ -378,61 +378,6 @@ const RiskProfileChart = ({ data }: { data: ChartData['riskComparison'] }) => {
   );
 };
 
-// Component: Fee Breakdown Bar Chart
-const FeeBreakdownChart = ({ data }: { data: ChartData['fees'] }) => {
-  const maxAmount = Math.max(...data.map((f) => f.amount));
-
-  return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>Annual Fee Breakdown</Text>
-
-      <View>
-        {data.map((fee, index) => {
-          const barWidth = (fee.amount / maxAmount) * 400;
-
-          return (
-            <View key={index} style={{ marginBottom: 12 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 10, color: COLORS.gray800 }}>{fee.category}</Text>
-                <Text style={{ fontSize: 10, fontWeight: 'bold', color: COLORS.gray800 }}>
-                  ${fee.amount.toLocaleString()} ({fee.percentage}%)
-                </Text>
-              </View>
-              <Svg width={480} height={20}>
-                <Rect
-                  x={0}
-                  y={0}
-                  width={400}
-                  height={20}
-                  fill={COLORS.gray200}
-                  rx={4}
-                />
-                <Rect
-                  x={0}
-                  y={0}
-                  width={barWidth}
-                  height={20}
-                  fill={CHART_COLORS[index % CHART_COLORS.length]}
-                  rx={4}
-                />
-              </Svg>
-            </View>
-          );
-        })}
-      </View>
-
-      {/* Total */}
-      <View style={{ borderTopWidth: 1, borderTopColor: COLORS.gray200, paddingTop: 8, marginTop: 8 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <Text style={{ fontSize: 10, fontWeight: 'bold', color: COLORS.gray800 }}>Total Annual Fees</Text>
-          <Text style={{ fontSize: 10, fontWeight: 'bold', color: COLORS.primary }}>
-            ${data.reduce((sum, f) => sum + f.amount, 0).toLocaleString()}
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
-};
 
 // Component: Format Markdown Analysis
 const AnalysisSection = ({ markdown }: { markdown: string }) => {
@@ -526,7 +471,7 @@ export const PortfolioPdfDocument = ({
         </Text>
       </Page>
 
-      {/* Page 2: Risk and Fees */}
+      {/* Page 2: Risk Overview */}
       <Page size="A4" style={styles.page}>
         {/* Header */}
         <View style={[styles.header, { marginBottom: 20 }]}>
@@ -536,9 +481,6 @@ export const PortfolioPdfDocument = ({
 
         {/* Risk Profile */}
         <RiskProfileChart data={chartData.riskComparison} />
-
-        {/* Fee Breakdown */}
-        <FeeBreakdownChart data={chartData.fees} />
 
         {/* Footer */}
         <Text style={styles.footer}>
