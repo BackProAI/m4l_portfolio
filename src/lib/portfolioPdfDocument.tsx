@@ -378,6 +378,161 @@ const RiskProfileChart = ({ data }: { data: ChartData['riskComparison'] }) => {
   );
 };
 
+const PortfolioRiskSection = ({ data }: { data: NonNullable<ChartData['portfolioRisk']> }) => {
+  const formatPercent = (value?: number) =>
+    value === undefined || value === null ? 'N/A' : `${(value * 100).toFixed(2)}%`;
+
+  // Abbreviate long asset class names for the correlation matrix headers
+  const abbrev = (name: string) => {
+    const map: Record<string, string> = {
+      'Australian Shares': 'AU Shares',
+      'International Shares': 'Intl Shares',
+      'Australian Fixed Interest': 'AU Fixed Int.',
+      'International Fixed Interest': 'Intl Fixed Int.',
+      'Australian Property': 'AU Property',
+      'International Property': 'Intl Property',
+      'Australian Fixed Income': 'AU Fixed Inc.',
+      'International Fixed Income': 'Intl Fixed Inc.',
+      'Domestic Cash': 'Cash',
+      'International Cash': 'Intl Cash',
+      'Alternatives': 'Alts',
+    };
+    return map[name] ?? name;
+  };
+
+  return (
+    <View style={styles.card}>
+      {/* Title */}
+      <Text style={[styles.cardTitle, { fontSize: 13, marginBottom: 10 }]}>Portfolio Risk Summary</Text>
+
+      {/* Summary tiles */}
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+        <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 10, borderRadius: 6, borderLeftWidth: 3, borderLeftColor: COLORS.primary }}>
+          <Text style={{ fontSize: 8, color: COLORS.gray600, marginBottom: 2 }}>Portfolio Volatility</Text>
+          <Text style={{ fontSize: 18, fontWeight: 'bold', color: COLORS.primary, marginBottom: 1 }}>
+            {formatPercent(data.portfolioStandardDeviation)}
+          </Text>
+          <Text style={{ fontSize: 7, color: COLORS.gray400 }}>Annualised std deviation (σ)</Text>
+        </View>
+        <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 10, borderRadius: 6, borderLeftWidth: 3, borderLeftColor: COLORS.primaryLight }}>
+          <Text style={{ fontSize: 8, color: COLORS.gray600, marginBottom: 2 }}>Portfolio Variance</Text>
+          <Text style={{ fontSize: 18, fontWeight: 'bold', color: COLORS.primary, marginBottom: 1 }}>
+            {data.portfolioVariance?.toFixed(4) ?? 'N/A'}
+          </Text>
+          <Text style={{ fontSize: 7, color: COLORS.gray400 }}>σ² from weights & correlations</Text>
+        </View>
+        <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 10, borderRadius: 6, borderLeftWidth: 3, borderLeftColor: COLORS.accent }}>
+          <Text style={{ fontSize: 8, color: COLORS.gray600, marginBottom: 2 }}>Asset Classes</Text>
+          <Text style={{ fontSize: 18, fontWeight: 'bold', color: COLORS.primary, marginBottom: 1 }}>
+            {data.assetClasses.length}
+          </Text>
+          <Text style={{ fontSize: 7, color: COLORS.gray400 }}>Mapped from holdings</Text>
+        </View>
+      </View>
+
+      {/* Asset Class Table */}
+      <View style={{ marginBottom: 14 }}>
+        <Text style={{ fontSize: 10, fontWeight: 'bold', color: COLORS.gray800, marginBottom: 6 }}>Asset-Class Metrics</Text>
+        {/* Header */}
+        <View style={{ flexDirection: 'row', backgroundColor: COLORS.primary, paddingVertical: 6, paddingHorizontal: 4, borderRadius: 4 }}>
+          <Text style={{ flex: 2.2, fontSize: 8, color: COLORS.white, fontWeight: 'bold' }}>Asset Class</Text>
+          <Text style={{ flex: 0.9, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Weight</Text>
+          <Text style={{ flex: 1.1, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Value</Text>
+          <Text style={{ flex: 0.9, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Exp. Return</Text>
+          <Text style={{ flex: 0.8, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Std Dev</Text>
+          <Text style={{ flex: 1.0, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Var. Contrib.</Text>
+        </View>
+        {data.assetClasses.map((asset, index) => (
+          <View
+            key={index}
+            style={{
+              flexDirection: 'row',
+              paddingVertical: 5,
+              paddingHorizontal: 4,
+              backgroundColor: index % 2 === 0 ? COLORS.white : COLORS.gray50,
+              borderBottomWidth: 1,
+              borderBottomColor: COLORS.gray200,
+            }}
+          >
+            <Text style={{ flex: 2.2, fontSize: 9, color: COLORS.gray800 }}>{asset.name}</Text>
+            <Text style={{ flex: 0.9, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>{asset.weightPercentage.toFixed(2)}%</Text>
+            <Text style={{ flex: 1.1, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>${asset.value.toLocaleString()}</Text>
+            <Text style={{ flex: 0.9, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>{formatPercent(asset.expectedReturn)}</Text>
+            <Text style={{ flex: 0.8, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>{formatPercent(asset.standardDeviation)}</Text>
+            <Text style={{ flex: 1.0, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>
+              {asset.riskContribution !== undefined ? asset.riskContribution.toFixed(4) : 'N/A'}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Correlation Matrix */}
+      {data.correlationMatrix.length > 0 && (
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ fontSize: 10, fontWeight: 'bold', color: COLORS.gray800, marginBottom: 6 }}>Correlation Matrix</Text>
+          {/* Header row */}
+          <View style={{ flexDirection: 'row', backgroundColor: COLORS.primary, paddingVertical: 5, paddingHorizontal: 4, borderRadius: 4 }}>
+            <Text style={{ flex: 1.6, fontSize: 8, color: COLORS.white, fontWeight: 'bold' }}>Asset Class</Text>
+            {data.correlationMatrix.map((row, index) => (
+              <Text key={index} style={{ flex: 1, fontSize: 7.5, color: COLORS.white, fontWeight: 'bold', textAlign: 'center' }}>
+                {abbrev(row.assetClass)}
+              </Text>
+            ))}
+          </View>
+          {data.correlationMatrix.map((row, rowIndex) => (
+            <View
+              key={rowIndex}
+              style={{
+                flexDirection: 'row',
+                paddingVertical: 5,
+                paddingHorizontal: 4,
+                backgroundColor: rowIndex % 2 === 0 ? COLORS.white : COLORS.gray50,
+                borderBottomWidth: 1,
+                borderBottomColor: COLORS.gray200,
+              }}
+            >
+              <Text style={{ flex: 1.6, fontSize: 8.5, color: COLORS.gray800 }}>{abbrev(row.assetClass)}</Text>
+              {data.correlationMatrix.map((col, colIndex) => {
+                const match = row.correlations.find((c) => c.with === col.assetClass);
+                const val = match ? match.coefficient.toFixed(2) : '—';
+                const isDiag = rowIndex === colIndex;
+                return (
+                  <Text
+                    key={`${rowIndex}-${colIndex}`}
+                    style={{
+                      flex: 1,
+                      fontSize: 8.5,
+                      textAlign: 'center',
+                      color: isDiag ? COLORS.primary : COLORS.gray800,
+                      fontWeight: isDiag ? 'bold' : 'normal',
+                    }}
+                  >
+                    {val}
+                  </Text>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Notes & Sources */}
+      {(data.notes || (data.sources && data.sources.length > 0)) && (
+        <View style={{ borderTopWidth: 1, borderTopColor: COLORS.gray200, paddingTop: 8, marginTop: 4 }}>
+          {data.notes && (
+            <Text style={{ fontSize: 8, color: COLORS.gray600, marginBottom: 3 }}>{data.notes}</Text>
+          )}
+          {data.sources && data.sources.length > 0 && (
+            <Text style={{ fontSize: 7.5, color: COLORS.gray400 }}>
+              Sources: {data.sources.join('  |  ')}
+            </Text>
+          )}
+        </View>
+      )}
+    </View>
+  );
+};
+
 
 // Component: Format Markdown Analysis
 const AnalysisSection = ({ markdown }: { markdown: string }) => {
@@ -481,6 +636,11 @@ export const PortfolioPdfDocument = ({
 
         {/* Risk Profile */}
         <RiskProfileChart data={chartData.riskComparison} />
+
+        {/* Portfolio Risk Summary */}
+        {chartData.portfolioRisk && (
+          <PortfolioRiskSection data={chartData.portfolioRisk} />
+        )}
 
         {/* Footer */}
         <Text style={styles.footer}>

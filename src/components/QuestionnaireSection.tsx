@@ -30,6 +30,7 @@ export function QuestionnaireSection({
     if (profile.ageRange) count++;
     if (typeof profile.fundCommentary === 'boolean') count++;
     if (typeof profile.valueForMoney === 'boolean') count++;
+    if (typeof profile.includeRiskSummary === 'boolean') count++;
     if (typeof profile.isIndustrySuperFund === 'boolean') {
       count++;
       // If industry super fund is Yes, check conditional fields
@@ -43,7 +44,7 @@ export function QuestionnaireSection({
 
   // Calculate total required fields
   const totalFields = React.useMemo(() => {
-    let total = 7; // Base questions: name, investorType, phase, ageRange, fundCommentary, valueForMoney, isIndustrySuperFund
+    let total = 8; // Base questions: name, investorType, phase, ageRange, fundCommentary, valueForMoney, includeRiskSummary, isIndustrySuperFund
     if (profile.isIndustrySuperFund === true) {
       total += 2; // Add conditional fields: industrySuperFundName, industrySuperFundRiskProfile
     }
@@ -170,30 +171,51 @@ export function QuestionnaireSection({
             <option value="no">No</option>
           </Select>
 
-          {/* Question 5: Portfolio Suitability - Full width span */}
-          <div className="md:col-span-2">
-            <Select
-              label="Is this a suitable portfolio for me?"
-              required
-              value={
-                profile.valueForMoney === true
-                  ? 'yes'
-                  : profile.valueForMoney === false
-                  ? 'no'
-                  : ''
-              }
-              onChange={(e) =>
-                handleChange(
-                  'valueForMoney',
-                  e.target.value === 'yes' ? true : e.target.value === 'no' ? false : undefined
-                )
-              }
-            >
-              <option value="">Select an option...</option>
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </Select>
-          </div>
+          {/* Question 5: Portfolio Suitability + Risk Summary side by side */}
+          <Select
+            label="Is this a suitable portfolio for me?"
+            required
+            value={
+              profile.valueForMoney === true
+                ? 'yes'
+                : profile.valueForMoney === false
+                ? 'no'
+                : ''
+            }
+            onChange={(e) =>
+              handleChange(
+                'valueForMoney',
+                e.target.value === 'yes' ? true : e.target.value === 'no' ? false : undefined
+              )
+            }
+          >
+            <option value="">Select an option...</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </Select>
+
+          {/* Question 5b: Include Portfolio Risk Summary */}
+          <Select
+            label="Include Portfolio Risk Summary? (Will take 5-7 minutes)"
+            required
+            value={
+              profile.includeRiskSummary === true
+                ? 'yes'
+                : profile.includeRiskSummary === false
+                ? 'no'
+                : ''
+            }
+            onChange={(e) =>
+              handleChange(
+                'includeRiskSummary',
+                e.target.value === 'yes' ? true : e.target.value === 'no' ? false : undefined
+              )
+            }
+          >
+            <option value="">Select an option...</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </Select>
 
           {/* Question 6: Industry Super Fund - Full width span */}
           <div className="md:col-span-2">

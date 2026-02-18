@@ -52,7 +52,15 @@ PERFORMANCE DATA EXTRACTION:
 - Extract historical performance data (annual returns) for each holding from the portfolio documents
 - Extract volatility data (standard deviation) for each holding if available in the documents
 - Present performance and volatility data year by year as found in the documents
-- If performance/volatility data is not available for a holding, omit those fields from the output`;
+- If performance/volatility data is not available for a holding, omit those fields from the output
+
+ASSET CLASS & PORTFOLIO RISK REQUIREMENTS:
+${profile.includeRiskSummary ? `- Map every holding into the investor-profile asset class taxonomy: Alternatives, Australian Fixed Interest, Australian Property, Australian Shares, Domestic Cash, International Cash, International Fixed Interest, International Property, International Shares. If a holding spans multiple classes, assign the dominant exposure.
+- For each asset class represented in the portfolio, gather expected annual return and annualised standard deviation using the Brave Search tools \`search_asset_class_metrics\` (specify the asset class in the query). Cite credible Australian sources when possible.
+- Build a complete correlation matrix between the asset classes that appear in the portfolio. Use the Brave Search tool \`search_asset_class_correlation\` for each pair that is not documented. If credible correlation data cannot be sourced, leave the matrix cell empty and explain in the notes.
+- Using the asset-class weights, expected returns, standard deviations, and correlation matrix, calculate portfolio variance (σ² = wᵀΣw) and portfolio standard deviation (σ = √σ²). Provide variance contributions per asset class.
+- If you cannot obtain enough data to calculate the portfolio risk metrics, omit the portfolioRisk block entirely (do NOT fabricate values).
+- Whenever you use external data, include the source URL in the JSON response.` : `- Do NOT include a portfolioRisk block in the JSON output. Do NOT call search_asset_class_metrics or search_asset_class_correlation. The user has not requested a Portfolio Risk Summary.`}`
 
   const suitabilitySectionNumber = profile.fundCommentary ? 6 : 5;
   const diversificationSectionNumber = suitabilitySectionNumber + 1;
@@ -67,6 +75,7 @@ PERFORMANCE DATA EXTRACTION:
 <age_range>${profile.ageRange}</age_range>
 <fund_commentary_requested>${profile.fundCommentary ? 'yes' : 'no'}</fund_commentary_requested>
 <suitability_conclusion_requested>${profile.valueForMoney ? 'yes' : 'no'}</suitability_conclusion_requested>
+<include_risk_summary>${profile.includeRiskSummary ? 'yes' : 'no'}</include_risk_summary>
 <is_industry_super_fund>${profile.isIndustrySuperFund ? 'yes' : 'no'}</is_industry_super_fund>
 ${profile.isIndustrySuperFund ? `<industry_super_fund_name>${profile.industrySuperFundName}</industry_super_fund_name>` : ''}
 ${profile.isIndustrySuperFund ? `<industry_super_fund_risk_profile>${profile.industrySuperFundRiskProfile}</industry_super_fund_risk_profile>` : ''}
@@ -175,7 +184,52 @@ CRITICAL: You must respond with ONLY valid JSON in this EXACT format (no markdow
           {"year": 2023, "standardDeviation": 14.2}
         ]
       }
-    ]
+    ],
+    "portfolioRisk": {
+      "portfolioStandardDeviation": 0.08,
+      "portfolioVariance": 0.0064,
+      "notes": "Sources: https://example.com/volatility, https://example.com/correlation",
+      "assetClasses": [
+        {
+          "name": "Australian Shares",
+          "weightPercentage": 26,
+          "value": 150000,
+          "expectedReturn": 0.08,
+          "standardDeviation": 0.15,
+          "riskContribution": 0.0032
+        },
+        {
+          "name": "International Shares",
+          "weightPercentage": 36,
+          "value": 200000,
+          "expectedReturn": 0.09,
+          "standardDeviation": 0.18,
+          "riskContribution": 0.0041
+        }
+      ],
+      "correlationMatrix": [
+        {
+          "assetClass": "Australian Shares",
+          "correlations": [
+            {"with": "Australian Shares", "coefficient": 1},
+            {"with": "International Shares", "coefficient": 0.75},
+            {"with": "Australian Fixed Interest", "coefficient": 0.35}
+          ]
+        },
+        {
+          "assetClass": "International Shares",
+          "correlations": [
+            {"with": "Australian Shares", "coefficient": 0.75},
+            {"with": "International Shares", "coefficient": 1},
+            {"with": "Australian Fixed Interest", "coefficient": 0.30}
+          ]
+        }
+      ],
+      "sources": [
+        "https://example.com/volatility",
+        "https://example.com/correlation"
+      ]
+    }
   }
 }
 
@@ -187,6 +241,10 @@ Instructions:
 - Include holdingsPerformance array ONLY if fund commentary was requested (fundCommentary = yes)
 - For each holding: classify type, provide description, extract performance/volatility data from documents
 - If performance or volatility data is not in documents, omit those arrays for that holding
+- Populate portfolioRisk ONLY when includeRiskSummary = yes AND you have sufficient data from documents and/or Brave search tool calls. Include sources for any external metrics. If insufficient data exists, omit portfolioRisk entirely.
+- If includeRiskSummary = no, do NOT include portfolioRisk in the JSON at all and do NOT call any asset class search tools.
+- Always use the Brave search tools \`search_asset_class_metrics\` and \`search_asset_class_correlation\` when the documents do not list the required volatility or correlation data — but ONLY when includeRiskSummary = yes.
+- Your ENTIRE response must be valid JSON with no leading/trailing commentary, code fences, or explanations. If you cannot complete the analysis, respond with {"error": "<brief factual reason>"} and nothing else.
 - Respond with pure JSON only (no markdown formatting around it)
 </output_format>
 `;

@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { analysePortfolioWithTools } from '@/lib/claudeClient';
 import { buildAnalysisPrompt, combineDocumentContents } from '@/lib/promptBuilder';
 import type { InvestorProfile, FileType } from '@/types';
+
+// Tell Vercel to allow up to 300 seconds (max on Pro/Enterprise) for this route
+export const maxDuration = 300;
 
 // ============================================================================
 // API Route: /api/analyze - Portfolio Analysis Endpoint
@@ -17,6 +20,7 @@ const AnalyseRequestSchema = z.object({
     ageRange: z.enum(['Under 40', '40-60', '60-80', '80+']),
     fundCommentary: z.boolean(),
     valueForMoney: z.boolean(),
+    includeRiskSummary: z.boolean(),
     isIndustrySuperFund: z.boolean(),
     industrySuperFundName: z.string().optional(),
     industrySuperFundRiskProfile: z.enum(['High Growth', 'Growth', 'Balanced', 'Conservative', 'Defensive', '']).optional(),
@@ -48,135 +52,125 @@ const AnalyseRequestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Parse and validate request body
+  let profile: z.infer<typeof AnalyseRequestSchema>['profile'];
+  let files: z.infer<typeof AnalyseRequestSchema>['files'];
+
   try {
-    // Parse and validate request body
     const body = await request.json();
     const validationResult = AnalyseRequestSchema.safeParse(body);
 
     if (!validationResult.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Invalid request data',
-          details: validationResult.error.issues,
-        },
-        { status: 400 }
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid request data', details: validationResult.error.issues }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    const { profile, files } = validationResult.data;
-
-    // Check API key configuration
-    if (!process.env.ANTHROPIC_API_KEY) {
-      console.error('ANTHROPIC_API_KEY not configured');
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'API configuration error. Please contact support.',
-        },
-        { status: 500 }
-      );
-    }
-
-    // Combine document contents
-    const documentContent = combineDocumentContents(files);
-
-    // Build Claude prompt
-    const { system, user } = buildAnalysisPrompt(profile, documentContent);
-
-    // Get token limits from environment or use defaults
-    const maxTokens = process.env.CLAUDE_MAX_TOKENS
-      ? parseInt(process.env.CLAUDE_MAX_TOKENS, 10)
-      : 8000;
-
-    const temperature = process.env.CLAUDE_TEMPERATURE
-      ? parseFloat(process.env.CLAUDE_TEMPERATURE)
-      : 0.3;
-
-    // Call Claude API with tool use support
-    const result = await analysePortfolioWithTools({
-      systemPrompt: system,
-      userPrompt: user,
-      maxTokens,
-      temperature,
-    });
-
-    // Handle Claude API failure
-    if (!result.success) {
-      console.error('Claude API call failed:', result.error);
-      return NextResponse.json(
-        {
-          success: false,
-          error: result.error || 'Failed to analyse portfolio',
-        },
-        { status: 500 }
-      );
-    }
-
-    // Parse JSON response from Claude
-    let analysisData;
-    try {
-      // Claude should return pure JSON, but let's handle potential markdown wrapping
-      let jsonStr = result.content || '';
-      
-      // Remove markdown code blocks if present
-      jsonStr = jsonStr.replace(/^```json\n?/i, '').replace(/\n?```$/,  '').trim();
-      
-      analysisData = JSON.parse(jsonStr);
-      
-      // Validate structure
-      if (!analysisData.markdown || !analysisData.chartData) {
-        throw new Error('Invalid response structure from Claude');
-      }
-    } catch (parseError) {
-      console.error('Failed to parse Claude response as JSON:', parseError);
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Failed to parse analysis results. Please try again.',
-        },
-        { status: 500 }
-      );
-    }
-
-    // Return successful analysis
-    return NextResponse.json({
-      success: true,
-      data: {
-        analysis: analysisData,
-        metadata: {
-          analysedAt: new Date().toISOString(),
-          model: result.model,
-          usage: result.usage,
-          investorProfile: {
-            type: profile.investorType,
-            phase: profile.phase,
-            ageRange: profile.ageRange,
-          },
-        },
-      },
-    });
-  } catch (error: any) {
-    console.error('Analyse API error:', error);
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'An unexpected error occurred during analysis',
-        details: error.message,
-      },
-      { status: 500 }
+    profile = validationResult.data.profile;
+    files = validationResult.data.files;
+  } catch {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Failed to parse request body' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'API configuration error. Please contact support.' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // Build prompt
+  const documentContent = combineDocumentContents(files);
+  const { system, user } = buildAnalysisPrompt(profile, documentContent);
+  const maxTokens = process.env.CLAUDE_MAX_TOKENS ? parseInt(process.env.CLAUDE_MAX_TOKENS, 10) : 8000;
+  const temperature = process.env.CLAUDE_TEMPERATURE ? parseFloat(process.env.CLAUDE_TEMPERATURE) : 0.3;
+
+  // Return a Server-Sent Events stream
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encode = (data: object) => {
+        const str = `data: ${JSON.stringify(data)}\n\n`;
+        controller.enqueue(new TextEncoder().encode(str));
+      };
+
+      try {
+        // Emit initial progress
+        encode({ type: 'progress', step: 0, total: 10, label: 'Starting analysis...' });
+
+        const result = await analysePortfolioWithTools({
+          systemPrompt: system,
+          userPrompt: user,
+          maxTokens,
+          temperature,
+          includeRiskSummary: profile.includeRiskSummary === true,
+          onProgress(step, total, label) {
+            encode({ type: 'progress', step, total, label });
+          },
+        });
+
+        if (!result.success) {
+          encode({ type: 'error', error: result.error || 'Failed to analyse portfolio' });
+          controller.close();
+          return;
+        }
+
+        // Parse Claude's JSON response
+        let analysisData;
+        try {
+          let jsonStr = result.content || '';
+          jsonStr = jsonStr.replace(/^```json\n?/i, '').replace(/\n?```$/, '').trim();
+          analysisData = JSON.parse(jsonStr);
+          if (!analysisData.markdown || !analysisData.chartData) {
+            throw new Error('Invalid response structure from Claude');
+          }
+        } catch {
+          encode({ type: 'error', error: 'Failed to parse analysis results. Please try again.' });
+          controller.close();
+          return;
+        }
+
+        // Emit the final result
+        encode({
+          type: 'result',
+          data: {
+            analysis: analysisData,
+            metadata: {
+              analysedAt: new Date().toISOString(),
+              model: result.model,
+              usage: result.usage,
+              investorProfile: {
+                type: profile.investorType,
+                phase: profile.phase,
+                ageRange: profile.ageRange,
+              },
+            },
+          },
+        });
+      } catch (err: any) {
+        encode({ type: 'error', error: err.message || 'An unexpected error occurred' });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
 }
 
 // Handle unsupported methods
 export async function GET() {
-  return NextResponse.json(
-    {
-      success: false,
-      error: 'Method not allowed. Use POST.',
-    },
-    { status: 405 }
+  return new Response(
+    JSON.stringify({ success: false, error: 'Method not allowed. Use POST.' }),
+    { status: 405, headers: { 'Content-Type': 'application/json' } }
   );
 }

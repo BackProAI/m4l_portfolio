@@ -15,6 +15,10 @@ export interface AnalysePortfolioParams {
   userPrompt: string;
   maxTokens?: number;
   temperature?: number;
+  /** Called after each completed step (tool call or final answer). step is 1-based, total is the ceiling. */
+  onProgress?: (step: number, total: number, label: string) => void;
+  /** Whether the user requested a Portfolio Risk Summary — affects the progress curve. */
+  includeRiskSummary?: boolean;
 }
 
 export interface AnalysePortfolioResult {
@@ -124,6 +128,8 @@ export async function analysePortfolioWithTools({
   userPrompt,
   maxTokens = 8000,
   temperature = 0.3,
+  onProgress,
+  includeRiskSummary = false,
 }: AnalysePortfolioParams): Promise<AnalysePortfolioResult> {
   try {
     // Validate API key
@@ -147,6 +153,12 @@ export async function analysePortfolioWithTools({
     const maxIterations = 20; // Prevent infinite loops
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    // Track individual tool executions for smooth progress
+    let toolsExecutedCount = 0;
+    // With risk summary: many more tool calls so use wider buffer and higher cap (original working values)
+    // Without risk summary: fewer calls so reach ceiling faster with a lower cap
+    const PROGRESS_BUFFER = includeRiskSummary ? 4 : 1;
+    const PROGRESS_CAP = includeRiskSummary ? 90 : 75;
 
     // Tool use loop - continue until Claude provides final answer
     while (iterationCount < maxIterations) {
@@ -181,6 +193,9 @@ export async function analysePortfolioWithTools({
           };
         }
 
+        // Report 100% completion
+        onProgress?.(1, 1, 'Finalising analysis...');
+
         return {
           success: true,
           content: textContent,
@@ -211,17 +226,49 @@ export async function analysePortfolioWithTools({
           content: response.content,
         });
 
-        // Execute all requested tools
+        // Execute tools one at a time, emitting a progress label before each
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
-        
-        for (const toolUse of toolUseBlocks) {
+
+        for (let i = 0; i < toolUseBlocks.length; i++) {
+          const toolUse = toolUseBlocks[i];
+          const inp = toolUse.input as Record<string, any>;
+
+          // Build a human-readable label for this single tool call
+          let label: string;
+          switch (toolUse.name) {
+            case 'search_fund_description':
+              label = `Searching for '${inp.fund_name ?? inp.fundName ?? 'fund'}'`;
+              break;
+            case 'search_company_description':
+              label = `Searching for '${inp.company_name ?? inp.companyName ?? 'company'}'`;
+              break;
+            case 'search_asset_class_metrics': {
+              const metric = inp.metric
+                ? (inp.metric as string).charAt(0).toUpperCase() + (inp.metric as string).slice(1)
+                : 'Metrics';
+              label = `Searching ${metric} for '${inp.asset_class ?? inp.assetClass ?? 'asset class'}'`;
+              break;
+            }
+            case 'search_asset_class_correlation':
+              label = `Searching correlation for '${inp.asset_class_a}' and '${inp.asset_class_b}'`;
+              break;
+            default:
+              label = toolUse.name;
+          }
+
+          // Emit progress for this individual tool before executing it
+          toolsExecutedCount++;
+          // step / (step + BUFFER) approaches 100% asymptotically, capped at PROGRESS_CAP
+          const pct = Math.round((toolsExecutedCount / (toolsExecutedCount + PROGRESS_BUFFER)) * PROGRESS_CAP);
+          onProgress?.(pct, 100, label);
+
           console.log(`Executing tool: ${toolUse.name} with input:`, toolUse.input);
-          
+
           const result = await executeSearchTool(
             toolUse.name,
             toolUse.input as Record<string, any>
           );
-          
+
           toolResults.push({
             type: 'tool_result',
             tool_use_id: toolUse.id,

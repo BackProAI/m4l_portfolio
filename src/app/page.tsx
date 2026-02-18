@@ -23,6 +23,7 @@ export default function Home() {
     ageRange: '',
     fundCommentary: undefined,
     valueForMoney: undefined,
+    includeRiskSummary: undefined,
     isIndustrySuperFund: undefined,
     industrySuperFundName: undefined,
     industrySuperFundRiskProfile: undefined,
@@ -41,6 +42,8 @@ export default function Home() {
   const [isAnalysing, setIsAnalysing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState<number | undefined>(undefined);
+  const [analysisProgressLabel, setAnalysisProgressLabel] = useState<string | undefined>(undefined);
 
   // State for PDF download
   const [isDownloading, setIsDownloading] = useState(false);
@@ -129,6 +132,8 @@ export default function Home() {
     setIsAnalysing(true);
     setAnalysisError(null);
     setAnalysisResult(null);
+    setAnalysisProgress(undefined);
+    setAnalysisProgressLabel(undefined);
 
     // Scroll to loading animation
     setTimeout(() => {
@@ -138,52 +143,78 @@ export default function Home() {
     try {
       // Prepare request payload
       let documentsToSend;
-      
+
       if (hasPastedContent) {
-        // Use pasted content as a "file"
         documentsToSend = [
           {
             fileName: 'pasted-content.txt',
             content: pastedContent,
-            type: 'pdf', // Treat as pdf for API validation
+            type: 'pdf' as const,
           },
         ];
       } else {
-        // Use uploaded files
         documentsToSend = files.map((f) => ({
           fileName: f.file.name,
           content: f.parsedContent || '',
           type: f.type,
         }));
       }
-      
-      const requestData = {
-        profile,
-        files: documentsToSend,
-      };
 
-      // Call the analyse API
+      const requestData = { profile, files: documentsToSend };
+
+      // Open SSE stream
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData),
       });
 
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || 'Analysis failed');
+      if (!response.ok || !response.body) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error((errJson as any).error || 'Analysis failed');
       }
 
-      // Store the analysis result
-      setAnalysisResult(result.data.analysis);
+      // Read Server-Sent Events
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-      // Scroll to results
-      setTimeout(() => {
-        document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE lines are delimited by "\n\n"
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? ''; // keep incomplete tail
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data: ')) continue;
+
+          let event: any;
+          try {
+            event = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+
+          if (event.type === 'progress') {
+            const pct = Math.round((event.step / event.total) * 100);
+            setAnalysisProgress(pct);
+            setAnalysisProgressLabel(event.label ?? undefined);
+          } else if (event.type === 'result') {
+            setAnalysisResult(event.data.analysis);
+            setAnalysisProgress(100);
+            setTimeout(() => {
+              document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+          } else if (event.type === 'error') {
+            throw new Error(event.error || 'Analysis failed');
+          }
+        }
+      }
     } catch (error) {
       console.error('Analysis error:', error);
       setAnalysisError(
@@ -259,7 +290,7 @@ export default function Home() {
         {/* Loading Animation */}
         {isAnalysing && (
           <div id="loading-section">
-            <LoadingAnimation />
+            <LoadingAnimation progress={analysisProgress} progressLabel={analysisProgressLabel} />
           </div>
         )}
 

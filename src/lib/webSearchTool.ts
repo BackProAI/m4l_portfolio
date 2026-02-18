@@ -158,6 +158,87 @@ export async function searchFundDescription(
 }
 
 /**
+ * Search for asset class level metrics such as expected return or volatility
+ * Uses Brave Search API to capture up-to-date market references
+ *
+ * @param assetClass - Asset class label (e.g., "Australian Shares")
+ * @param metric - Metric focus (e.g., "volatility", "expected return")
+ */
+export async function searchAssetClassMetrics(
+  assetClass: string,
+  metric: string = 'volatility'
+): Promise<SearchResult> {
+  const searchQuery = `${assetClass} typical annual ${metric} standard deviation investment data Australia`;
+
+  return performGeneralSearch(searchQuery, `${assetClass} - No ${metric} data found`);
+}
+
+/**
+ * Search for correlation between two asset classes
+ *
+ * @param assetClassA - First asset class
+ * @param assetClassB - Second asset class
+ */
+export async function searchAssetClassCorrelation(
+  assetClassA: string,
+  assetClassB: string
+): Promise<SearchResult> {
+  const searchQuery = `correlation between ${assetClassA} and ${assetClassB} asset classes Australia`;
+  return performGeneralSearch(searchQuery, `${assetClassA} vs ${assetClassB} - No correlation data found`);
+}
+
+async function performGeneralSearch(query: string, fallbackDescription: string): Promise<SearchResult> {
+  try {
+    if (!process.env.BRAVE_SEARCH_API_KEY) {
+      console.warn('Brave Search API key not configured, returning placeholder');
+      return {
+        description: fallbackDescription,
+        sources: [],
+      };
+    }
+
+    const response = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=3`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Brave Search API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const descriptions = data.web?.results
+      ?.slice(0, 3)
+      .map((r: any) => r.description)
+      .filter(Boolean) || [];
+
+    const sources = data.web?.results
+      ?.slice(0, 3)
+      .map((r: any) => r.url)
+      .filter(Boolean) || [];
+
+    const description = descriptions.length > 0 ? descriptions.join(' ') : fallbackDescription;
+
+    return {
+      description: description.slice(0, 600),
+      sources,
+    };
+  } catch (error) {
+    console.error('Brave general search failed:', error);
+    return {
+      description: fallbackDescription,
+      sources: [],
+    };
+  }
+}
+
+/**
  * Tool definitions for Claude API
  * These define the functions that Claude can request to call
  */
@@ -197,6 +278,42 @@ export const SEARCH_TOOLS = [
       },
       required: ["fund_name"]
     }
+  },
+  {
+    name: "search_asset_class_metrics",
+    description: "Search the web for expected return or volatility metrics for a given asset class (e.g., Australian Shares, International Fixed Interest). Use this when you need standard deviation inputs for portfolio risk calculations.",
+    input_schema: {
+      type: "object",
+      properties: {
+        asset_class: {
+          type: "string",
+          description: "Asset class name, e.g., 'Australian Shares', 'International Fixed Interest'",
+        },
+        metric: {
+          type: "string",
+          description: "Metric to focus on, e.g., 'volatility', 'expected return'",
+        },
+      },
+      required: ["asset_class"],
+    },
+  },
+  {
+    name: "search_asset_class_correlation",
+    description: "Search the web for correlation data between two asset classes to support portfolio variance calculations.",
+    input_schema: {
+      type: "object",
+      properties: {
+        asset_class_a: {
+          type: "string",
+          description: "First asset class name",
+        },
+        asset_class_b: {
+          type: "string",
+          description: "Second asset class name",
+        },
+      },
+      required: ["asset_class_a", "asset_class_b"],
+    },
   }
 ] as const;
 
@@ -227,6 +344,18 @@ export async function executeSearchTool(
         result = await searchFundDescription(
           toolInput.fund_name,
           toolInput.fund_manager
+        );
+        return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
+      case 'search_asset_class_metrics':
+        result = await searchAssetClassMetrics(
+          toolInput.asset_class,
+          toolInput.metric
+        );
+        return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
+      case 'search_asset_class_correlation':
+        result = await searchAssetClassCorrelation(
+          toolInput.asset_class_a,
+          toolInput.asset_class_b
         );
         return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
         

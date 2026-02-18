@@ -31,6 +31,7 @@ export interface InvestorProfile {
   ageRange: AgeRange | '';
   fundCommentary: boolean | undefined;
   valueForMoney: boolean | undefined;
+  includeRiskSummary: boolean | undefined; // Question: Include Portfolio Risk Summary with Portfolio Volatility?
   isIndustrySuperFund: boolean | undefined; // Question 6: Is this an industry super fund?
   industrySuperFundName?: string; // Required if isIndustrySuperFund = true
   industrySuperFundRiskProfile?: InvestorType | ''; // Required if isIndustrySuperFund = true
@@ -71,6 +72,7 @@ export interface ChartData {
   fees: FeeBreakdown[];
   portfolioValue: number;
   holdingsPerformance?: HoldingPerformance[]; // Optional: Detailed holdings analysis with performance data
+  portfolioRisk?: PortfolioRiskSummary; // Optional: Asset-class level risk metrics
 }
 
 export interface AllocationItem {
@@ -115,6 +117,37 @@ export interface HoldingPerformance {
   percentage: number; // Percentage of total portfolio
   performance: YearlyPerformance[]; // Historical performance data by year
   volatility: YearlyVolatility[]; // Volatility metrics by year
+}
+
+// Portfolio Risk Summary Types
+// ============================================================================
+
+export interface PortfolioRiskSummary {
+  portfolioStandardDeviation: number; // Annualised sigma for the whole portfolio (e.g., 0.08 for 8%)
+  portfolioVariance: number; // Variance value (sigma squared)
+  notes?: string; // Optional commentary or data coverage notes
+  assetClasses: PortfolioRiskAssetClass[]; // Asset-class level metrics
+  correlationMatrix: PortfolioCorrelationRow[]; // Correlation coefficients between asset classes
+  sources?: string[]; // External references used to derive the metrics
+}
+
+export interface PortfolioRiskAssetClass {
+  name: string;
+  weightPercentage: number; // Weight as a percentage of portfolio (e.g., 26 for 26%)
+  value: number; // Dollar exposure for the asset class
+  expectedReturn?: number; // Expected long-term return (decimal, e.g., 0.07)
+  standardDeviation?: number; // Annualised standard deviation (decimal)
+  riskContribution?: number; // Portion of portfolio variance contributed by this asset class
+}
+
+export interface PortfolioCorrelationRow {
+  assetClass: string;
+  correlations: PortfolioCorrelationCell[];
+}
+
+export interface PortfolioCorrelationCell {
+  with: string;
+  coefficient: number; // Correlation coefficient between -1 and 1
 }
 
 // API Request/Response Types

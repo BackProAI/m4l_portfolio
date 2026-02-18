@@ -4,6 +4,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { HoldingsPerformanceCharts } from '@/components/HoldingsPerformanceCharts';
+import { PortfolioRiskSummary } from '@/components/PortfolioRiskSummary';
 import type { ChartData, InvestorType, HoldingPerformance } from '@/types';
 
 // ============================================================================
@@ -181,6 +182,13 @@ export function PortfolioCharts({ chartData, holdingsPerformance }: PortfolioCha
         </Card>
 
       </div>
+
+      {/* Portfolio Risk Summary */}
+      {chartData.portfolioRisk && (
+        <div>
+          <PortfolioRiskSummary data={chartData.portfolioRisk} />
+        </div>
+      )}
 
       {/* Holdings Performance Section */}
       {holdingsPerformance && holdingsPerformance.length > 0 && (

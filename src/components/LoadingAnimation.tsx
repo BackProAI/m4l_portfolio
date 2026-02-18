@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 
 // ============================================================================
-// LoadingAnimation Component - Enhanced loading state with rotating messages
+// LoadingAnimation Component - Progress ring with live % from backend steps
 // ============================================================================
 
 const LOADING_MESSAGES = [
@@ -19,85 +19,114 @@ const LOADING_MESSAGES = [
   'Generating comprehensive analysis...',
 ];
 
-export function LoadingAnimation() {
+interface LoadingAnimationProps {
+  /** 0-100. When undefined the component cycles messages and shows an indeterminate ring. */
+  progress?: number;
+  /** Short label emitted by the backend for the current step. */
+  progressLabel?: string;
+}
+
+export function LoadingAnimation({ progress, progressLabel }: LoadingAnimationProps) {
   const [messageIndex, setMessageIndex] = useState(0);
 
+  // Cycle generic messages only when we have no backend label
   useEffect(() => {
+    if (progressLabel) return;
     const interval = setInterval(() => {
       setMessageIndex((prev) => (prev + 1) % LOADING_MESSAGES.length);
-    }, 2500); // Change message every 2.5 seconds
-
+    }, 2500);
     return () => clearInterval(interval);
-  }, []);
+  }, [progressLabel]);
+
+  // SVG arc progress ring
+  const SIZE = 96;         // px — matches the w-24 h-24 wrapper
+  const STROKE = 4;
+  const RADIUS = (SIZE - STROKE) / 2; // 44
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS; // ~276.5
+
+  const hasProgress = typeof progress === 'number';
+  const pct = hasProgress ? Math.min(Math.max(progress, 0), 100) : 0;
+  const dashOffset = CIRCUMFERENCE - (pct / 100) * CIRCUMFERENCE;
 
   return (
     <Card>
       <CardContent className="py-16">
         <div className="flex flex-col items-center justify-center space-y-6">
-          {/* Animated Spinner */}
-          <div className="relative w-24 h-24">
-            {/* Outer ring */}
-            <div className="absolute inset-0 border-4 border-primary-200 rounded-full"></div>
-            
-            {/* Spinning ring */}
-            <div 
-              className="absolute inset-0 border-4 border-transparent border-t-primary border-r-primary rounded-full animate-spin"
-              style={{ animationDuration: '1.5s' }}
-            ></div>
-            
-            {/* Inner pulsing circle */}
-            <div 
-              className="absolute inset-3 bg-primary-100 rounded-full animate-pulse"
-              style={{ animationDuration: '2s' }}
-            ></div>
-            
-            {/* Center icon */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <svg
-                className="w-10 h-10 text-primary"
+          {/* Progress ring */}
+          <div className="relative" style={{ width: SIZE, height: SIZE }}>
+            <svg
+              width={SIZE}
+              height={SIZE}
+              className="-rotate-90"   /* start arc from top */
+            >
+              {/* Track */}
+              <circle
+                cx={SIZE / 2}
+                cy={SIZE / 2}
+                r={RADIUS}
                 fill="none"
                 stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                />
-              </svg>
+                className="text-primary-200"
+                strokeWidth={STROKE}
+              />
+              {/* Progress arc */}
+              <circle
+                cx={SIZE / 2}
+                cy={SIZE / 2}
+                r={RADIUS}
+                fill="none"
+                stroke="currentColor"
+                className="text-primary transition-all duration-700 ease-out"
+                strokeWidth={STROKE}
+                strokeLinecap="round"
+                strokeDasharray={CIRCUMFERENCE}
+                strokeDashoffset={hasProgress ? dashOffset : CIRCUMFERENCE * 0.25}
+                style={
+                  hasProgress
+                    ? undefined
+                    : { animation: 'spin 1.5s linear infinite', transformOrigin: `${SIZE / 2}px ${SIZE / 2}px` }
+                }
+              />
+            </svg>
+
+            {/* Centre — percentage or spinner icon */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              {hasProgress ? (
+                <span className="text-primary font-bold text-lg leading-none select-none">
+                  {Math.round(pct)}%
+                </span>
+              ) : (
+                /* Fallback pulse dot when no progress signal yet */
+                <div className="w-4 h-4 rounded-full bg-primary animate-pulse" />
+              )}
             </div>
           </div>
 
-          {/* Loading message */}
+          {/* Message area */}
           <div className="text-center space-y-2">
             <h3 className="text-xl font-semibold text-primary">
               Analysing Your Portfolio
             </h3>
-            <p 
+            <p
               className="text-neutral-600 min-h-[24px] transition-opacity duration-500"
-              key={messageIndex}
+              key={progressLabel ?? messageIndex}
             >
-              {LOADING_MESSAGES[messageIndex]}
-            </p>
-            <p className="text-sm text-neutral-500">
-              This typically takes 30-60 seconds
+              {progressLabel ?? LOADING_MESSAGES[messageIndex]}
             </p>
           </div>
 
-          {/* Progress dots */}
-          <div className="flex gap-2">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="w-2 h-2 rounded-full bg-primary animate-pulse"
-                style={{
-                  animationDelay: `${i * 0.3}s`,
-                  animationDuration: '1.5s',
-                }}
-              ></div>
-            ))}
-          </div>
+          {/* Progress dots (only shown while indeterminate) */}
+          {!hasProgress && (
+            <div className="flex gap-2">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="w-2 h-2 rounded-full bg-primary animate-pulse"
+                  style={{ animationDelay: `${i * 0.3}s`, animationDuration: '1.5s' }}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
