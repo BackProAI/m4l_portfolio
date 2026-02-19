@@ -11,7 +11,6 @@ const LOADING_MESSAGES = [
   'Analysing portfolio composition...',
   'Evaluating asset allocation...',
   'Assessing risk profile...',
-  'Comparing to benchmarks...',
   'Calculating fees and costs...',
   'Reviewing fund performance...',
   'Analysing diversification...',

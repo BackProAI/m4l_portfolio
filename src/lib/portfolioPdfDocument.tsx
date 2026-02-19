@@ -382,24 +382,6 @@ const PortfolioRiskSection = ({ data }: { data: NonNullable<ChartData['portfolio
   const formatPercent = (value?: number) =>
     value === undefined || value === null ? 'N/A' : `${(value * 100).toFixed(2)}%`;
 
-  // Abbreviate long asset class names for the correlation matrix headers
-  const abbrev = (name: string) => {
-    const map: Record<string, string> = {
-      'Australian Shares': 'AU Shares',
-      'International Shares': 'Intl Shares',
-      'Australian Fixed Interest': 'AU Fixed Int.',
-      'International Fixed Interest': 'Intl Fixed Int.',
-      'Australian Property': 'AU Property',
-      'International Property': 'Intl Property',
-      'Australian Fixed Income': 'AU Fixed Inc.',
-      'International Fixed Income': 'Intl Fixed Inc.',
-      'Domestic Cash': 'Cash',
-      'International Cash': 'Intl Cash',
-      'Alternatives': 'Alts',
-    };
-    return map[name] ?? name;
-  };
-
   return (
     <View style={styles.card}>
       {/* Title */}
@@ -439,7 +421,7 @@ const PortfolioRiskSection = ({ data }: { data: NonNullable<ChartData['portfolio
           <Text style={{ flex: 0.9, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Weight</Text>
           <Text style={{ flex: 1.1, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Value</Text>
           <Text style={{ flex: 0.9, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Exp. Return</Text>
-          <Text style={{ flex: 0.8, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Std Dev</Text>
+          <Text style={{ flex: 0.8, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Pred. Vol %</Text>
           <Text style={{ flex: 1.0, fontSize: 8, color: COLORS.white, fontWeight: 'bold', textAlign: 'right' }}>Var. Contrib.</Text>
         </View>
         {data.assetClasses.map((asset, index) => (
@@ -465,56 +447,6 @@ const PortfolioRiskSection = ({ data }: { data: NonNullable<ChartData['portfolio
           </View>
         ))}
       </View>
-
-      {/* Correlation Matrix */}
-      {data.correlationMatrix.length > 0 && (
-        <View style={{ marginBottom: 12 }}>
-          <Text style={{ fontSize: 10, fontWeight: 'bold', color: COLORS.gray800, marginBottom: 6 }}>Correlation Matrix</Text>
-          {/* Header row */}
-          <View style={{ flexDirection: 'row', backgroundColor: COLORS.primary, paddingVertical: 5, paddingHorizontal: 4, borderRadius: 4 }}>
-            <Text style={{ flex: 1.6, fontSize: 8, color: COLORS.white, fontWeight: 'bold' }}>Asset Class</Text>
-            {data.correlationMatrix.map((row, index) => (
-              <Text key={index} style={{ flex: 1, fontSize: 7.5, color: COLORS.white, fontWeight: 'bold', textAlign: 'center' }}>
-                {abbrev(row.assetClass)}
-              </Text>
-            ))}
-          </View>
-          {data.correlationMatrix.map((row, rowIndex) => (
-            <View
-              key={rowIndex}
-              style={{
-                flexDirection: 'row',
-                paddingVertical: 5,
-                paddingHorizontal: 4,
-                backgroundColor: rowIndex % 2 === 0 ? COLORS.white : COLORS.gray50,
-                borderBottomWidth: 1,
-                borderBottomColor: COLORS.gray200,
-              }}
-            >
-              <Text style={{ flex: 1.6, fontSize: 8.5, color: COLORS.gray800 }}>{abbrev(row.assetClass)}</Text>
-              {data.correlationMatrix.map((col, colIndex) => {
-                const match = row.correlations.find((c) => c.with === col.assetClass);
-                const val = match ? match.coefficient.toFixed(2) : '—';
-                const isDiag = rowIndex === colIndex;
-                return (
-                  <Text
-                    key={`${rowIndex}-${colIndex}`}
-                    style={{
-                      flex: 1,
-                      fontSize: 8.5,
-                      textAlign: 'center',
-                      color: isDiag ? COLORS.primary : COLORS.gray800,
-                      fontWeight: isDiag ? 'bold' : 'normal',
-                    }}
-                  >
-                    {val}
-                  </Text>
-                );
-              })}
-            </View>
-          ))}
-        </View>
-      )}
 
       {/* Notes & Sources */}
       {(data.notes || (data.sources && data.sources.length > 0)) && (

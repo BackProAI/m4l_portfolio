@@ -20,7 +20,7 @@ function formatReturn(value?: number): string {
 }
 
 export function PortfolioRiskSummary({ data }: PortfolioRiskSummaryProps) {
-  const { portfolioStandardDeviation, portfolioVariance, assetClasses, correlationMatrix, notes, sources } = data;
+  const { portfolioStandardDeviation, portfolioVariance, assetClasses, notes, sources } = data;
 
   return (
     <Card>
@@ -56,7 +56,7 @@ export function PortfolioRiskSummary({ data }: PortfolioRiskSummaryProps) {
                   <th className="text-right p-3 font-semibold text-neutral-700">Weight</th>
                   <th className="text-right p-3 font-semibold text-neutral-700">Value</th>
                   <th className="text-right p-3 font-semibold text-neutral-700">Expected Return</th>
-                  <th className="text-right p-3 font-semibold text-neutral-700">Std Dev</th>
+                  <th className="text-right p-3 font-semibold text-neutral-700">Predicted Volatility</th>
                   <th className="text-right p-3 font-semibold text-neutral-700">Variance Contribution</th>
                 </tr>
               </thead>
@@ -75,41 +75,6 @@ export function PortfolioRiskSummary({ data }: PortfolioRiskSummaryProps) {
             </table>
           </div>
         </div>
-
-        {correlationMatrix.length > 0 && (
-          <div>
-            <p className="text-sm font-semibold text-neutral-700 mb-3">Correlation Matrix</p>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-neutral-100">
-                  <tr>
-                    <th className="text-left p-3 font-semibold text-neutral-700">Asset Class</th>
-                    {correlationMatrix.map((row) => (
-                      <th key={`col-${row.assetClass}`} className="text-right p-3 font-semibold text-neutral-700">
-                        {row.assetClass}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {correlationMatrix.map((row) => (
-                    <tr key={row.assetClass} className="border-b border-neutral-200">
-                      <td className="p-3 text-neutral-800 font-medium">{row.assetClass}</td>
-                      {correlationMatrix.map((col) => {
-                        const match = row.correlations.find((c) => c.with === col.assetClass);
-                        return (
-                          <td key={`${row.assetClass}-${col.assetClass}`} className="p-3 text-right text-neutral-700">
-                            {match ? match.coefficient.toFixed(2) : '—'}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
         {(notes || (sources && sources.length > 0)) && (
           <div className="text-xs text-neutral-500 space-y-1">

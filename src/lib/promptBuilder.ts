@@ -49,6 +49,8 @@ When analysing individual holdings in the portfolio, classify each into one of t
    - For each security: Provide a brief factual description of the security type and characteristics
 
 PERFORMANCE DATA EXTRACTION:
+- Extract the exact reporting timeframe text from the portfolio statement (for example: "1 July 2024 to 30 June 2025" or "for the period 01/07/2024 to 31/12/2024").
+- In markdown analysis, always state the exact timeframe wording from the document when discussing returns/performance. Do NOT reduce it to only a year unless the document itself only provides year-level data.
 - Extract historical performance data (annual returns) for each holding from the portfolio documents
 - Extract volatility data (standard deviation) for each holding if available in the documents
 - Present performance and volatility data year by year as found in the documents
@@ -57,15 +59,17 @@ PERFORMANCE DATA EXTRACTION:
 ASSET CLASS & PORTFOLIO RISK REQUIREMENTS:
 ${profile.includeRiskSummary ? `- Map every holding into the investor-profile asset class taxonomy: Alternatives, Australian Fixed Interest, Australian Property, Australian Shares, Domestic Cash, International Cash, International Fixed Interest, International Property, International Shares. If a holding spans multiple classes, assign the dominant exposure.
 - For each asset class represented in the portfolio, gather expected annual return and annualised standard deviation using the Brave Search tools \`search_asset_class_metrics\` (specify the asset class in the query). Cite credible Australian sources when possible.
+- In the markdown analysis Risk Profile section, include an Asset-Class Metrics table that lists each asset class with: Weight (%), Expected Return (%), and Predicted Volatility (%).
 - Build a complete correlation matrix between the asset classes that appear in the portfolio. Use the Brave Search tool \`search_asset_class_correlation\` for each pair that is not documented. If credible correlation data cannot be sourced, leave the matrix cell empty and explain in the notes.
-- Using the asset-class weights, expected returns, standard deviations, and correlation matrix, calculate portfolio variance (σ² = wᵀΣw) and portfolio standard deviation (σ = √σ²). Provide variance contributions per asset class.
+- Use the following 4-step method for portfolio risk calculations. Step 1 (individual variance contributions): Σ(w_i² · σ_i²). Step 2 (pairwise covariance contributions): Σ_i Σ_j>i (2 · w_i · w_j · σ_i · σ_j · ρ_ij). Step 3 (portfolio variance): σ_p² = Step 1 + Step 2. Step 4 (portfolio standard deviation): σ_p = √σ_p².
+- Definitions: n = number of asset classes, w_i = portfolio weight of asset class i, σ_i = annualised standard deviation of asset class i, ρ_ij = correlation coefficient between asset classes i and j.
+- Weight handling rule: if allocations are expressed as percentages (for example 26), convert to decimals (0.26) before calculations.
+- Keep portfolioVariance and riskContribution as variance-scale values, and portfolioStandardDeviation as a decimal standard deviation (for example 0.08 for 8%). Provide variance contributions per asset class.
 - If you cannot obtain enough data to calculate the portfolio risk metrics, omit the portfolioRisk block entirely (do NOT fabricate values).
 - Whenever you use external data, include the source URL in the JSON response.` : `- Do NOT include a portfolioRisk block in the JSON output. Do NOT call search_asset_class_metrics or search_asset_class_correlation. The user has not requested a Portfolio Risk Summary.`}`
 
-  const suitabilitySectionNumber = profile.fundCommentary ? 6 : 5;
-  const diversificationSectionNumber = suitabilitySectionNumber + 1;
-  const stressTestSectionNumber = suitabilitySectionNumber + 2;
-  const benchmarkSectionNumber = suitabilitySectionNumber + 3;
+  const diversificationSectionNumber = 5;
+  const stressTestSectionNumber = 6;
 
   // Build user prompt with investor context
   const userPrompt = `
@@ -74,7 +78,6 @@ ${profile.includeRiskSummary ? `- Map every holding into the investor-profile as
 <phase>${profile.phase}</phase>
 <age_range>${profile.ageRange}</age_range>
 <fund_commentary_requested>${profile.fundCommentary ? 'yes' : 'no'}</fund_commentary_requested>
-<suitability_conclusion_requested>${profile.valueForMoney ? 'yes' : 'no'}</suitability_conclusion_requested>
 <include_risk_summary>${profile.includeRiskSummary ? 'yes' : 'no'}</include_risk_summary>
 <is_industry_super_fund>${profile.isIndustrySuperFund ? 'yes' : 'no'}</is_industry_super_fund>
 ${profile.isIndustrySuperFund ? `<industry_super_fund_name>${profile.industrySuperFundName}</industry_super_fund_name>` : ''}
@@ -93,37 +96,8 @@ Use NEUTRAL language throughout - present characteristics and comparisons withou
 2. **Portfolio Composition** - Total value, asset allocation breakdown, major holdings
 3. **Risk Profile Analysis** - Current risk level characteristics compared to ${profile.investorType} profile characteristics
 4. **Alignment Assessment** - Factual comparison of portfolio characteristics against investor profile
-${profile.fundCommentary ? `5. **Holdings Analysis** - Split into three subsections based on holding types:
-   
-   **5a. Direct Shares Analysis**
-   For each company stock, provide:
-   - Company name and ticker symbol (if available)
-   - Brief factual description of what the company does (1-2 sentences)
-   - Current holding value and percentage of portfolio
-   - Historical performance: Annual returns by year (extract from documents)
-   - Volatility: Standard deviation by year (extract from documents if available)
-   
-   **5b. Managed Funds Analysis**
-   For each managed fund, provide:
-   - Fund name and fund manager
-   - Factual description of the fund's investment strategy and asset allocation (1-2 sentences)
-   - Current holding value and percentage of portfolio
-   - Historical performance: Annual returns by year (extract from documents)
-   - Volatility: Standard deviation by year (extract from documents if available)
-   
-   **5c. Securities Analysis**
-   For each other security (bonds, ETFs, etc.), provide:
-   - Security name and type
-   - Brief factual description of the security and its characteristics (1-2 sentences)
-   - Current holding value and percentage of portfolio
-   - Historical performance data if available in documents
-   - Risk characteristics` : ''}
-${profile.valueForMoney
-  ? `${suitabilitySectionNumber}. **Portfolio Suitability Conclusion** - Provide a brief factual determination of whether portfolio characteristics align with the investor's risk tolerance (${profile.investorType}), time horizon (based on ${profile.ageRange}), current phase (${profile.phase}), and objectives. State the conclusion factually (e.g., "characteristics align", "more aggressive than profile") without offering recommendations.`
-  : `${suitabilitySectionNumber}. **Portfolio Profile Comparison** - Compare the portfolio's characteristics against the investor's risk tolerance (${profile.investorType}), time horizon (based on ${profile.ageRange}), current phase (${profile.phase}), and inferred objectives. Describe similarities or differences factually and neutrally without declaring suitability or suggesting changes.`}
 ${diversificationSectionNumber}. **Diversification Analysis** - Geographic, sector, and asset class distribution facts
 ${stressTestSectionNumber}. **Stress Test Analysis** - Historical portfolio behaviour during past market scenarios
-${benchmarkSectionNumber}. **Benchmark Comparison** - Factual performance comparison vs. relevant Australian indices
 
 REMEMBER: Present facts and data neutrally. Do not use negative, critical, or judgmental language. Do not suggest actions or changes.
 </analysis_requirements>
@@ -158,6 +132,8 @@ CRITICAL: You must respond with ONLY valid JSON in this EXACT format (no markdow
         "ticker": "CBA",
         "currentValue": 50000,
         "percentage": 10,
+        "performanceTimeframe": "1 Jul 2024 to 30 Jun 2025",
+        "totalReturnForTimeframe": 12.5,
         "performance": [
           {"year": 2024, "return": 12.5},
           {"year": 2023, "return": 8.3},
@@ -175,6 +151,8 @@ CRITICAL: You must respond with ONLY valid JSON in this EXACT format (no markdow
         "description": "Diversified fund investing approximately 90% in growth assets (shares and property) and 10% in defensive assets.",
         "currentValue": 100000,
         "percentage": 20,
+        "performanceTimeframe": "1 Jul 2024 to 30 Jun 2025",
+        "totalReturnForTimeframe": 15.2,
         "performance": [
           {"year": 2024, "return": 15.2},
           {"year": 2023, "return": 10.7}
@@ -240,8 +218,13 @@ Instructions:
 - Use only asset classes present in the actual portfolio
 - Include holdingsPerformance array ONLY if fund commentary was requested (fundCommentary = yes)
 - For each holding: classify type, provide description, extract performance/volatility data from documents
+- For each holding where available, include 
+  - performanceTimeframe: exact timeframe text copied from the statement
+  - totalReturnForTimeframe: total return (%) for that exact timeframe
 - If performance or volatility data is not in documents, omit those arrays for that holding
+- If timeframe-based return is not available for a holding, omit performanceTimeframe and totalReturnForTimeframe for that holding.
 - Populate portfolioRisk ONLY when includeRiskSummary = yes AND you have sufficient data from documents and/or Brave search tool calls. Include sources for any external metrics. If insufficient data exists, omit portfolioRisk entirely.
+- For every portfolioRisk.assetClasses entry, always populate standardDeviation using the predicted volatility input for that asset class (expressed as decimal in JSON, rendered as % in UI/PDF).
 - If includeRiskSummary = no, do NOT include portfolioRisk in the JSON at all and do NOT call any asset class search tools.
 - Always use the Brave search tools \`search_asset_class_metrics\` and \`search_asset_class_correlation\` when the documents do not list the required volatility or correlation data — but ONLY when includeRiskSummary = yes.
 - Your ENTIRE response must be valid JSON with no leading/trailing commentary, code fences, or explanations. If you cannot complete the analysis, respond with {"error": "<brief factual reason>"} and nothing else.

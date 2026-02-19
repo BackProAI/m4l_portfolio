@@ -22,7 +22,6 @@ export default function Home() {
     phase: '',
     ageRange: '',
     fundCommentary: undefined,
-    valueForMoney: undefined,
     includeRiskSummary: undefined,
     isIndustrySuperFund: undefined,
     industrySuperFundName: undefined,

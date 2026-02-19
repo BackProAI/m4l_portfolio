@@ -19,7 +19,6 @@ const AnalyseRequestSchema = z.object({
     phase: z.enum(['Accumulation', 'Investment', 'Non-super', 'Pension']),
     ageRange: z.enum(['Under 40', '40-60', '60-80', '80+']),
     fundCommentary: z.boolean(),
-    valueForMoney: z.boolean(),
     includeRiskSummary: z.boolean(),
     isIndustrySuperFund: z.boolean(),
     industrySuperFundName: z.string().optional(),

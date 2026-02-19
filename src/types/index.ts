@@ -30,7 +30,6 @@ export interface InvestorProfile {
   phase: Phase | '';
   ageRange: AgeRange | '';
   fundCommentary: boolean | undefined;
-  valueForMoney: boolean | undefined;
   includeRiskSummary: boolean | undefined; // Question: Include Portfolio Risk Summary with Portfolio Volatility?
   isIndustrySuperFund: boolean | undefined; // Question 6: Is this an industry super fund?
   industrySuperFundName?: string; // Required if isIndustrySuperFund = true
@@ -115,6 +114,8 @@ export interface HoldingPerformance {
   ticker?: string; // Optional ticker symbol for direct shares (e.g., "CBA.AX")
   currentValue: number; // Current dollar value of this holding
   percentage: number; // Percentage of total portfolio
+  performanceTimeframe?: string; // Exact timeframe label from statement (e.g., "1 Jul 2024 to 30 Jun 2025")
+  totalReturnForTimeframe?: number; // Total return (%) over the exact statement timeframe
   performance: YearlyPerformance[]; // Historical performance data by year
   volatility: YearlyVolatility[]; // Volatility metrics by year
 }

@@ -193,7 +193,7 @@ export function PortfolioCharts({ chartData, holdingsPerformance }: PortfolioCha
       {/* Holdings Performance Section */}
       {holdingsPerformance && holdingsPerformance.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-2xl font-bold text-neutral-900 mb-6">Holdings Analysis</h2>
+          <h2 className="text-2xl font-bold text-neutral-900 mb-6">Holdings Performance</h2>
           <HoldingsPerformanceCharts holdings={holdingsPerformance} />
         </div>
       )}

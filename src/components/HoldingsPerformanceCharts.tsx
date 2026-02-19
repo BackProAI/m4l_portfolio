@@ -57,6 +57,7 @@ export function HoldingsPerformanceCharts({ holdings }: HoldingsPerformanceChart
 
   // Transform data for risk-return scatter plot
   const riskReturnData = prepareRiskReturnData(holdings);
+  const portfolioTotalReturn = calculatePortfolioTotalReturn(holdings);
 
   return (
     <div className="space-y-6">
@@ -90,6 +91,13 @@ export function HoldingsPerformanceCharts({ holdings }: HoldingsPerformanceChart
                 <HoldingsTable holdings={securities} />
               </div>
             )}
+
+            <div className="pt-4 border-t border-neutral-200">
+              <p className="text-sm text-neutral-500 mb-1">Total Return (All Holdings)</p>
+              <p className={`text-2xl font-bold ${portfolioTotalReturn !== null && portfolioTotalReturn >= 0 ? 'text-success' : 'text-error'}`}>
+                {portfolioTotalReturn !== null ? `${portfolioTotalReturn.toFixed(2)}%` : 'N/A'}
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -258,15 +266,13 @@ function HoldingsTable({ holdings }: HoldingsTableProps) {
             <th className="text-left p-3 font-semibold text-neutral-700">Description</th>
             <th className="text-right p-3 font-semibold text-neutral-700">Value</th>
             <th className="text-right p-3 font-semibold text-neutral-700">% Portfolio</th>
-            <th className="text-right p-3 font-semibold text-neutral-700">Avg Return</th>
-            <th className="text-right p-3 font-semibold text-neutral-700">Avg Volatility</th>
+            <th className="text-right p-3 font-semibold text-neutral-700">Return</th>
           </tr>
         </thead>
         <tbody>
           {holdings.map((holding) => {
             const performanceEntries = holding.performance ?? [];
             const avgReturn = calculateAverage(performanceEntries.map(p => p.return));
-            const displayVolatility = getHoldingVolatilityValue(holding);
 
             return (
               <tr key={holding.name} className="border-b border-neutral-200 hover:bg-neutral-50">
@@ -288,9 +294,6 @@ function HoldingsTable({ holdings }: HoldingsTableProps) {
                 <td className={`p-3 text-right font-medium ${avgReturn !== null && avgReturn >= 0 ? 'text-success' : 'text-error'}`}>
                   {avgReturn !== null ? `${avgReturn.toFixed(2)}%` : 'N/A'}
                 </td>
-                <td className="p-3 text-right text-neutral-700">
-                  {displayVolatility !== null && displayVolatility > 0 ? `${displayVolatility.toFixed(2)}%` : 'N/A'}
-                </td>
               </tr>
             );
           })}
@@ -309,7 +312,6 @@ function HoldingDetailCard({ holding, color }: HoldingDetailCardProps) {
   const performanceEntries = holding.performance ?? [];
   const volatilityEntries = holding.volatility ?? [];
   const avgReturn = calculateAverage(performanceEntries.map(p => p.return));
-  const displayVolatility = getHoldingVolatilityValue(holding);
 
   return (
     <Card>
@@ -346,15 +348,9 @@ function HoldingDetailCard({ holding, color }: HoldingDetailCardProps) {
               </p>
             </div>
             <div>
-              <p className="text-xs text-neutral-500 mb-1">Avg Return</p>
+              <p className="text-xs text-neutral-500 mb-1">Return</p>
               <p className={`text-lg font-semibold ${avgReturn !== null && avgReturn >= 0 ? 'text-success' : 'text-error'}`}>
                 {avgReturn !== null ? `${avgReturn.toFixed(2)}%` : 'N/A'}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-neutral-500 mb-1">Avg Volatility</p>
-              <p className="text-lg font-semibold text-neutral-900">
-                {displayVolatility !== null && displayVolatility > 0 ? `${displayVolatility.toFixed(2)}%` : 'N/A'}
               </p>
             </div>
           </div>
@@ -530,4 +526,32 @@ function calculateStandardDeviation(values: number[]): number | null {
   if (mean === null) return null;
   const variance = values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / (values.length - 1);
   return Math.sqrt(variance);
+}
+
+function getTimeframeReturn(holding: HoldingPerformance): number | null {
+  if (typeof holding.totalReturnForTimeframe === 'number') {
+    return holding.totalReturnForTimeframe;
+  }
+
+  const performanceEntries = holding.performance ?? [];
+  if (performanceEntries.length === 1) {
+    return performanceEntries[0].return;
+  }
+
+  return null;
+}
+
+function calculatePortfolioTotalReturn(holdings: HoldingPerformance[]): number | null {
+  const returns = holdings
+    .map((holding) => {
+      const performanceEntries = holding.performance ?? [];
+      return calculateAverage(performanceEntries.map((p) => p.return));
+    })
+    .filter((value): value is number => value !== null);
+
+  if (returns.length === 0) {
+    return null;
+  }
+
+  return returns.reduce((sum, value) => sum + value, 0);
 }
