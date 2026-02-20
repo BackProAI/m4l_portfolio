@@ -58,6 +58,7 @@ export function HoldingsPerformanceCharts({ holdings }: HoldingsPerformanceChart
   // Transform data for risk-return scatter plot
   const riskReturnData = prepareRiskReturnData(holdings);
   const portfolioTotalReturn = calculatePortfolioTotalReturn(holdings);
+  const portfolioTimeframe = getPortfolioTimeframeLabel(holdings);
 
   return (
     <div className="space-y-6">
@@ -93,7 +94,10 @@ export function HoldingsPerformanceCharts({ holdings }: HoldingsPerformanceChart
             )}
 
             <div className="pt-4 border-t border-neutral-200">
-              <p className="text-sm text-neutral-500 mb-1">Total Return (All Holdings)</p>
+              <p className="text-sm text-neutral-500 mb-1">
+                Total Return for All Holdings over the Time Period
+                {portfolioTimeframe ? ` (${portfolioTimeframe})` : ''}
+              </p>
               <p className={`text-2xl font-bold ${portfolioTotalReturn !== null && portfolioTotalReturn >= 0 ? 'text-success' : 'text-error'}`}>
                 {portfolioTotalReturn !== null ? `${portfolioTotalReturn.toFixed(2)}%` : 'N/A'}
               </p>
@@ -541,17 +545,34 @@ function getTimeframeReturn(holding: HoldingPerformance): number | null {
   return null;
 }
 
-function calculatePortfolioTotalReturn(holdings: HoldingPerformance[]): number | null {
-  const returns = holdings
-    .map((holding) => {
-      const performanceEntries = holding.performance ?? [];
-      return calculateAverage(performanceEntries.map((p) => p.return));
-    })
-    .filter((value): value is number => value !== null);
+function getPortfolioTimeframeLabel(holdings: HoldingPerformance[]): string | null {
+  for (const holding of holdings) {
+    if (holding.performanceTimeframe && holding.performanceTimeframe.trim() !== '') {
+      return holding.performanceTimeframe.trim();
+    }
+  }
 
-  if (returns.length === 0) {
+  return null;
+}
+
+function calculatePortfolioTotalReturn(holdings: HoldingPerformance[]): number | null {
+  const weightedReturns = holdings
+    .map((holding) => {
+      const timeframeReturn = getTimeframeReturn(holding);
+      if (timeframeReturn === null) {
+        return null;
+      }
+
+      const weight = (holding.percentage || 0) / 100;
+      return { weightedReturn: timeframeReturn * weight, weight };
+    })
+    .filter((value): value is { weightedReturn: number; weight: number } => value !== null);
+
+  const totalWeight = weightedReturns.reduce((sum, item) => sum + item.weight, 0);
+  if (weightedReturns.length === 0 || totalWeight === 0) {
     return null;
   }
 
-  return returns.reduce((sum, value) => sum + value, 0);
+  const totalWeightedReturn = weightedReturns.reduce((sum, item) => sum + item.weightedReturn, 0);
+  return totalWeightedReturn / totalWeight;
 }

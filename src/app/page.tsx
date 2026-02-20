@@ -321,8 +321,8 @@ export default function Home() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="prose prose-slate max-w-none prose-headings:text-primary prose-a:text-primary">
-                    <ReactMarkdown>{analysisResult.markdown}</ReactMarkdown>
+                  <div className="analysis-markdown">
+                    <ReactMarkdown>{stripAssetClassMetrics(analysisResult.markdown)}</ReactMarkdown>
                   </div>
                 </CardContent>
               </Card>
@@ -428,4 +428,34 @@ export default function Home() {
       </div>
     </div>
   );
+}
+
+function stripAssetClassMetrics(markdown: string): string {
+  if (!markdown) return markdown;
+
+  const lines = markdown.split(/\r?\n/);
+  const filtered: string[] = [];
+  let skipping = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!skipping && /asset[-\s]?class metrics/i.test(trimmed)) {
+      skipping = true;
+      continue;
+    }
+
+    if (skipping) {
+      const isTableLike = trimmed.includes('|');
+      if (trimmed === '' || !isTableLike) {
+        skipping = false;
+      } else {
+        continue;
+      }
+    }
+
+    filtered.push(line);
+  }
+
+  return filtered.join('\n');
 }

@@ -152,3 +152,79 @@ html {
 ::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--primary-500));
 }
+
+/* Markdown styling for analysis output (RGB-safe for PDF capture) */
+.analysis-markdown {
+  color: rgb(var(--neutral-800));
+  line-height: 1.7;
+  max-width: none;
+}
+
+.analysis-markdown h1,
+.analysis-markdown h2,
+.analysis-markdown h3,
+.analysis-markdown h4,
+.analysis-markdown h5,
+.analysis-markdown h6 {
+  color: rgb(var(--primary-500));
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.analysis-markdown h1 { font-size: 2rem; }
+.analysis-markdown h2 { font-size: 1.5rem; }
+.analysis-markdown h3 { font-size: 1.25rem; }
+
+.analysis-markdown p,
+.analysis-markdown ul,
+.analysis-markdown ol,
+.analysis-markdown blockquote,
+.analysis-markdown table {
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.analysis-markdown ul,
+.analysis-markdown ol {
+  padding-left: 1.25rem;
+}
+
+.analysis-markdown a {
+  color: rgb(var(--primary-500));
+  text-decoration: underline;
+}
+
+.analysis-markdown strong {
+  font-weight: 700;
+}
+
+.analysis-markdown code {
+  background: rgb(var(--neutral-100));
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.9em;
+}
+
+.analysis-markdown pre {
+  background: rgb(var(--neutral-100));
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+}
+
+.analysis-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.analysis-markdown th,
+.analysis-markdown td {
+  border: 1px solid rgb(var(--border-light));
+  padding: 0.5rem;
+}
+
+.analysis-markdown th {
+  background: rgb(var(--background-secondary));
+}

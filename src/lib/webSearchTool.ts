@@ -2,6 +2,8 @@
 // Web Search Tool - Fetches company and fund descriptions from the web
 // ============================================================================
 
+import { getAssetClassMetrics, getCorrelation, formatPercent } from './assetClassData';
+
 interface SearchResult {
   description: string;
   sources: string[];
@@ -158,8 +160,9 @@ export async function searchFundDescription(
 }
 
 /**
- * Search for asset class level metrics such as expected return or volatility
- * Uses Brave Search API to capture up-to-date market references
+ * Get asset class level metrics from static data
+ * Returns consistent, authoritative metrics based on industry-standard assumptions
+ * NO WEB SEARCH REQUIRED - uses pre-loaded Vanguard-methodology data
  *
  * @param assetClass - Asset class label (e.g., "Australian Shares")
  * @param metric - Metric focus (e.g., "volatility", "expected return")
@@ -168,13 +171,36 @@ export async function searchAssetClassMetrics(
   assetClass: string,
   metric: string = 'volatility'
 ): Promise<SearchResult> {
-  const searchQuery = `${assetClass} typical annual ${metric} standard deviation investment data Australia`;
+  // Use static data for consistent results
+  const metrics = getAssetClassMetrics(assetClass);
+  
+  if (!metrics) {
+    return {
+      description: `No data available for asset class: ${assetClass}. Please use one of the standard asset classes: Australian Shares, International Shares, Australian Fixed Interest, International Fixed Interest, Australian Property, International Property, Cash, Alternatives.`,
+      sources: []
+    };
+  }
 
-  return performGeneralSearch(searchQuery, `${assetClass} - No ${metric} data found`);
+  if (metric === 'expected return') {
+    const returnPercent = formatPercent(metrics.expectedReturn, 1);
+    return {
+      description: `${assetClass}: Expected annual return is ${returnPercent} (${metrics.expectedReturn} as decimal). ${metrics.description}. Based on 10-year forecast using Vanguard Capital Market Assumptions methodology and industry-standard institutional investment metrics.`,
+      sources: ['Static Asset Class Data - Vanguard Capital Market Assumptions methodology (February 2026)']
+    };
+  } else {
+    // volatility / standard deviation
+    const volPercent = formatPercent(metrics.standardDeviation, 1);
+    return {
+      description: `${assetClass}: Standard deviation (volatility) is ${volPercent} (${metrics.standardDeviation} as decimal). ${metrics.description}. Based on 10-year forecast using Vanguard Capital Market Assumptions methodology and industry-standard institutional investment metrics.`,
+      sources: ['Static Asset Class Data - Vanguard Capital Market Assumptions methodology (February 2026)']
+    };
+  }
 }
 
 /**
- * Search for correlation between two asset classes
+ * Get correlation between two asset classes from static data
+ * Returns consistent correlation coefficients based on industry-standard assumptions
+ * NO WEB SEARCH REQUIRED - uses pre-loaded Vanguard-methodology correlation matrix
  *
  * @param assetClassA - First asset class
  * @param assetClassB - Second asset class
@@ -183,8 +209,13 @@ export async function searchAssetClassCorrelation(
   assetClassA: string,
   assetClassB: string
 ): Promise<SearchResult> {
-  const searchQuery = `correlation between ${assetClassA} and ${assetClassB} asset classes Australia`;
-  return performGeneralSearch(searchQuery, `${assetClassA} vs ${assetClassB} - No correlation data found`);
+  // Use static correlation matrix for consistent results
+  const correlation = getCorrelation(assetClassA, assetClassB);
+  
+  return {
+    description: `Correlation coefficient (ρ) between ${assetClassA} and ${assetClassB} is ${correlation.toFixed(2)}. This represents the strength of the linear relationship between these two asset classes. Values range from -1 (perfect negative correlation) to +1 (perfect positive correlation). Based on Vanguard Capital Market Assumptions methodology and industry-standard institutional correlation matrices.`,
+    sources: ['Static Asset Class Data - Vanguard Capital Market Assumptions methodology (February 2026)']
+  };
 }
 
 async function performGeneralSearch(query: string, fallbackDescription: string): Promise<SearchResult> {
@@ -281,35 +312,36 @@ export const SEARCH_TOOLS = [
   },
   {
     name: "search_asset_class_metrics",
-    description: "Search the web for expected return or volatility metrics for a given asset class (e.g., Australian Shares, International Fixed Interest). Use this when you need standard deviation inputs for portfolio risk calculations.",
+    description: "Get expected return or volatility (standard deviation) for a given asset class from authoritative static data. Returns instant, consistent results based on Vanguard Capital Market Assumptions methodology. NO web search required - data is pre-loaded. Use this to get expected annual return and annualised standard deviation for portfolio risk calculations. Call this TWICE per asset class: once for 'expected return' and once for 'volatility'.",
     input_schema: {
       type: "object",
       properties: {
         asset_class: {
           type: "string",
-          description: "Asset class name, e.g., 'Australian Shares', 'International Fixed Interest'",
+          description: "Asset class name, e.g., 'Australian Shares', 'International Shares', 'Australian Fixed Interest', 'International Fixed Interest', 'Australian Property', 'International Property', 'Cash', 'Alternatives'",
         },
         metric: {
           type: "string",
-          description: "Metric to focus on, e.g., 'volatility', 'expected return'",
+          description: "Metric to retrieve: 'expected return' or 'volatility'. Must specify one.",
+          enum: ["expected return", "volatility"],
         },
       },
-      required: ["asset_class"],
+      required: ["asset_class", "metric"],
     },
   },
   {
     name: "search_asset_class_correlation",
-    description: "Search the web for correlation data between two asset classes to support portfolio variance calculations.",
+    description: "Get the correlation coefficient between two specific asset classes from authoritative static data. Returns instant, consistent ρ_ij (correlation coefficient) based on Vanguard Capital Market Assumptions methodology. NO web search required - correlation matrix is pre-loaded. Values range from -1 to 1. Call this for EVERY unique pair of asset classes in the portfolio to build a complete correlation matrix.",
     input_schema: {
       type: "object",
       properties: {
         asset_class_a: {
           type: "string",
-          description: "First asset class name",
+          description: "First asset class name (e.g., 'Australian Shares')",
         },
         asset_class_b: {
           type: "string",
-          description: "Second asset class name",
+          description: "Second asset class name (e.g., 'International Shares')",
         },
       },
       required: ["asset_class_a", "asset_class_b"],

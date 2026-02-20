@@ -150,7 +150,7 @@ export async function analysePortfolioWithTools({
 
     let response: Anthropic.Message;
     let iterationCount = 0;
-    const maxIterations = 20; // Prevent infinite loops
+    const maxIterations = 100; // Increased limit - tools are now instant static lookups (no web search delay)
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     // Track individual tool executions for smooth progress
