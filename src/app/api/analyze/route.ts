@@ -163,9 +163,17 @@ export async function POST(request: NextRequest) {
         let analysisData;
         try {
           let jsonStr = result.content || '';
-          jsonStr = jsonStr.replace(/^```json\n?/i, '').replace(/\n?```$/, '').trim();
           
-          // Log the raw response for debugging truncation issues
+          // Extract JSON from between markdown code fences if present
+          const jsonMatch = jsonStr.match(/```json\s*\n([\s\S]*?)\n```/i);
+          if (jsonMatch) {
+            jsonStr = jsonMatch[1].trim();
+          } else {
+            // Fallback: just strip the fences if no match (old behavior)
+            jsonStr = jsonStr.replace(/^```json\n?/i, '').replace(/\n?```$/, '').trim();
+          }
+          
+          // Log the raw response for debugging
           console.log('[API] Response size:', jsonStr.length, 'characters');
           console.log('[API] Response preview (first 200 chars):', jsonStr.substring(0, 200));
           console.log('[API] Response preview (last 200 chars):', jsonStr.substring(Math.max(0, jsonStr.length - 200)));
