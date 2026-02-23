@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
 
         if (!result.success) {
           encode({ type: 'error', error: result.error || 'Failed to analyse portfolio' });
+          await new Promise(resolve => setTimeout(resolve, 100));
           closeController();
           return;
         }
@@ -152,6 +153,7 @@ export async function POST(request: NextRequest) {
           // Check if Claude returned an error response
           if (analysisData.error) {
             encode({ type: 'error', error: analysisData.error });
+            await new Promise(resolve => setTimeout(resolve, 100));
             closeController();
             return;
           }
@@ -175,6 +177,7 @@ export async function POST(request: NextRequest) {
           }
           
           encode({ type: 'error', error: errorMsg });
+          await new Promise(resolve => setTimeout(resolve, 100));
           closeController();
           return;
         }
@@ -196,9 +199,15 @@ export async function POST(request: NextRequest) {
             },
           },
         });
+        
+        // Wait for network buffers to flush before closing stream
+        // This prevents race condition in serverless where execution context
+        // can terminate before enqueued data is transmitted to client
+        await new Promise(resolve => setTimeout(resolve, 100));
+        closeController();
       } catch (err: any) {
         encode({ type: 'error', error: err.message || 'An unexpected error occurred' });
-      } finally {
+        await new Promise(resolve => setTimeout(resolve, 100));
         closeController();
       }
     },
