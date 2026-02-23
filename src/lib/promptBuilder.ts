@@ -59,21 +59,20 @@ PERFORMANCE DATA EXTRACTION:
 
 ASSET CLASS & PORTFOLIO RISK REQUIREMENTS:
 ${profile.includeRiskSummary ? `- Map every holding into the investor-profile asset class taxonomy: Alternatives, Australian Fixed Interest, Australian Property, Australian Shares, Domestic Cash, International Cash, International Fixed Interest, International Property, International Shares. If a holding spans multiple classes, assign the dominant exposure.
-- For each asset class represented in the portfolio, retrieve THREE specific data points using the search tools:
-  1. Expected annual return (10-year forecast) - use search_asset_class_metrics with metric="expected return"
-  2. Standard deviation / volatility (annualised) - use search_asset_class_metrics with metric="volatility"
-  3. Correlation coefficients with each other asset class - use search_asset_class_correlation for each unique pair
-- IMPORTANT: The search tools now return STATIC DATA from authoritative sources (Vanguard Capital Market Assumptions methodology). This ensures consistency - the same portfolio will always produce the same risk metrics.
-- Call search_asset_class_metrics TWICE per asset class: once with metric="expected return" and once with metric="volatility". These calls are fast (no web search required).
-- Build a COMPLETE correlation matrix: Call search_asset_class_correlation for each unique pair of asset classes in the portfolio. For example, if you have 3 asset classes (A, B, C), call it for: A-B, A-C, B-C.
-- Extract the numerical values from the tool responses (they will be clearly stated). Use these exact values in your calculations.
+- CRITICAL OPTIMIZATION: Use the get_portfolio_risk_data batch tool to retrieve ALL data in ONE call. Pass an array of all asset classes present in the portfolio (e.g., ['Australian Shares', 'International Shares', 'Australian Fixed Interest']). This single call returns:
+  1. Expected annual returns for all classes
+  2. Standard deviations (volatility) for all classes
+  3. Complete correlation matrix for all pairs
+- The batch tool is MUCH faster than individual calls (1 call vs 40+ calls). Only use individual search_asset_class_metrics or search_asset_class_correlation tools if you need to query a single specific value after getting the batch data.
+- IMPORTANT: All tools return STATIC DATA from authoritative sources (Vanguard Capital Market Assumptions methodology). This ensures consistency - the same portfolio will always produce the same risk metrics.
+- Extract the numerical values from the tool response (they will be clearly stated). Use these exact values in your calculations.
 - Do NOT include an Asset-Class Metrics table or portfolio standard deviation calculations in the markdown Risk Profile section. These metrics are displayed separately in the Portfolio Risk Summary component.
 - Use the following 4-step method for portfolio risk calculations. Step 1 (individual variance contributions): Σ(w_i² · σ_i²). Step 2 (pairwise covariance contributions): Σ_i Σ_j>i (2 · w_i · w_j · σ_i · σ_j · ρ_ij). Step 3 (portfolio variance): σ_p² = Step 1 + Step 2. Step 4 (portfolio standard deviation): σ_p = √σ_p².
 - Definitions: n = number of asset classes, w_i = portfolio weight of asset class i (as decimal), σ_i = annualised standard deviation of asset class i (as decimal), ρ_ij = correlation coefficient between asset classes i and j (the specific pair).
 - Weight handling rule: if allocations are expressed as percentages (for example 26), convert to decimals (0.26) before calculations.
 - Keep portfolioVariance and riskContribution as variance-scale values, and portfolioStandardDeviation as a decimal standard deviation (for example 0.08 for 8%). Provide variance contributions per asset class.
 - If you cannot obtain enough data to calculate the portfolio risk metrics, omit the portfolioRisk block entirely (do NOT fabricate values).
-- Include "Static Asset Class Data - Vanguard Capital Market Assumptions methodology" in the sources array.` : `- Do NOT include a portfolioRisk block in the JSON output. Do NOT call search_asset_class_metrics or search_asset_class_correlation. The user has not requested a Portfolio Risk Summary.`}`
+- Include "Static Asset Class Data - Vanguard Capital Market Assumptions methodology" in the sources array.` : `- Do NOT include a portfolioRisk block in the JSON output. Do NOT call get_portfolio_risk_data, search_asset_class_metrics or search_asset_class_correlation. The user has not requested a Portfolio Risk Summary.`}`
 
   const diversificationSectionNumber = 5;
   const stressTestSectionNumber = 6;
@@ -129,10 +128,6 @@ CRITICAL: You must respond with ONLY valid JSON in this EXACT format (no markdow
       "targetRisk": "${profile.investorType}",
       "alignment": "Aligned"
     },
-    "fees": [
-      {"category": "Management Fees", "amount": 3500, "percentage": 0.70},
-      {"category": "Admin Fees", "amount": 500, "percentage": 0.10}
-    ],
     "holdingsPerformance": [
       {
         "name": "Commonwealth Bank",
@@ -223,13 +218,12 @@ CRITICAL: You must respond with ONLY valid JSON in this EXACT format (no markdow
 Instructions:
 - Extract portfolio value and asset allocation from documents
 - Determine current risk profile based on asset allocation
+- Do NOT include fees or costs in the output
 - For riskComparison.alignment field, use ONLY these exact values based on risk level comparison:
   * "Aligned" - when currentRisk exactly matches targetRisk (e.g., Growth = Growth)
   * "Too Conservative" - when currentRisk is more conservative than targetRisk (e.g., Balanced when target is Growth)
   * "Too Aggressive" - when currentRisk is more aggressive than targetRisk (e.g., High Growth when target is Balanced)
   * Risk level order from conservative to aggressive: Defensive < Conservative < Balanced < Growth < High Growth
-  * Do NOT use variations like "Closely Aligned" or other terms - use ONLY the three exact values above
-- Calculate total fees from document data
 - Use only asset classes present in the actual portfolio
 - Include holdingsPerformance array ONLY if fund commentary was requested (fundCommentary = yes)
 - For each holding: classify type, provide description, extract performance/volatility data from documents

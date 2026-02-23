@@ -55,6 +55,9 @@ export interface UploadedFile {
     sheetNames?: string[];
     size: number;
   };
+  // OCR/Scanned PDF support
+  isScanned?: boolean; // True if PDF had no extractable text
+  base64Data?: string; // Base64-encoded file data for scanned PDFs
 }
 
 // Analysis Result Types

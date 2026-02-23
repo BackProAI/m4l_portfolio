@@ -218,6 +218,85 @@ export async function searchAssetClassCorrelation(
   };
 }
 
+/**
+ * Get all portfolio risk data in a single call (BATCH OPTIMIZATION)
+ * Returns metrics and correlations for all asset classes in one response
+ * Dramatically reduces tool call overhead from 40+ calls to 1 call
+ *
+ * @param assetClasses - Array of asset class names present in portfolio
+ */
+export async function getPortfolioRiskData(
+  assetClasses: string[]
+): Promise<SearchResult> {
+  // Validate input
+  if (!assetClasses || assetClasses.length === 0) {
+    return {
+      description: 'Error: No asset classes provided',
+      sources: []
+    };
+  }
+
+  // Collect metrics for all asset classes
+  const metricsData: Record<string, { expectedReturn: number; standardDeviation: number; description: string }> = {};
+  const missingClasses: string[] = [];
+
+  for (const assetClass of assetClasses) {
+    const metrics = getAssetClassMetrics(assetClass);
+    if (metrics) {
+      metricsData[assetClass] = {
+        expectedReturn: metrics.expectedReturn,
+        standardDeviation: metrics.standardDeviation,
+        description: metrics.description
+      };
+    } else {
+      missingClasses.push(assetClass);
+    }
+  }
+
+  // Collect correlations for all unique pairs
+  const correlationData: Record<string, number> = {};
+  for (let i = 0; i < assetClasses.length; i++) {
+    for (let j = i + 1; j < assetClasses.length; j++) {
+      const classA = assetClasses[i];
+      const classB = assetClasses[j];
+      const correlation = getCorrelation(classA, classB);
+      const key = `${classA}|${classB}`;
+      correlationData[key] = correlation;
+    }
+  }
+
+  // Build comprehensive response
+  let description = `Portfolio Risk Data for ${assetClasses.length} asset classes:\n\n`;
+  
+  description += '=== EXPECTED RETURNS & VOLATILITY ===\n';
+  for (const [className, data] of Object.entries(metricsData)) {
+    const returnPct = formatPercent(data.expectedReturn, 1);
+    const volPct = formatPercent(data.standardDeviation, 1);
+    description += `${className}:\n`;
+    description += `  - Expected Return: ${returnPct} (${data.expectedReturn} decimal)\n`;
+    description += `  - Standard Deviation (Volatility): ${volPct} (${data.standardDeviation} decimal)\n`;
+    description += `  - Description: ${data.description}\n\n`;
+  }
+
+  description += '=== CORRELATION MATRIX ===\n';
+  description += `Total pairs: ${Object.keys(correlationData).length}\n\n`;
+  for (const [pair, coefficient] of Object.entries(correlationData)) {
+    const [classA, classB] = pair.split('|');
+    description += `${classA} ↔ ${classB}: ${coefficient.toFixed(2)}\n`;
+  }
+
+  if (missingClasses.length > 0) {
+    description += `\n⚠️ Warning: No data found for: ${missingClasses.join(', ')}\n`;
+  }
+
+  description += '\nBased on institutional correlation matrix and Vanguard Capital Market Assumptions methodology (February 2026).';
+
+  return {
+    description,
+    sources: ['Static Asset Class Data - Vanguard Capital Market Assumptions methodology (February 2026)']
+  };
+}
+
 async function performGeneralSearch(query: string, fallbackDescription: string): Promise<SearchResult> {
   try {
     if (!process.env.BRAVE_SEARCH_API_KEY) {
@@ -346,6 +425,23 @@ export const SEARCH_TOOLS = [
       },
       required: ["asset_class_a", "asset_class_b"],
     },
+  },
+  {
+    name: "get_portfolio_risk_data",
+    description: "BATCH TOOL - Get ALL portfolio risk data in a single call. Returns expected returns, standard deviations (volatility), and complete correlation matrix for all specified asset classes. This is MUCH faster than calling individual tools - use this FIRST whenever you need data for multiple asset classes. Only fall back to individual search_asset_class_metrics or search_asset_class_correlation tools if you need to query a single specific value.",
+    input_schema: {
+      type: "object",
+      properties: {
+        asset_classes: {
+          type: "array",
+          items: {
+            type: "string"
+          },
+          description: "Array of asset class names present in the portfolio (e.g., ['Australian Shares', 'International Shares', 'Australian Fixed Interest']). Include ALL asset classes you need data for.",
+        },
+      },
+      required: ["asset_classes"],
+    },
   }
 ] as const;
 
@@ -388,6 +484,12 @@ export async function executeSearchTool(
         result = await searchAssetClassCorrelation(
           toolInput.asset_class_a,
           toolInput.asset_class_b
+        );
+        return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
+      
+      case 'get_portfolio_risk_data':
+        result = await getPortfolioRiskData(
+          toolInput.asset_classes
         );
         return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
         

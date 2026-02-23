@@ -70,7 +70,7 @@ export default function Home() {
       
       if (index === -1) continue;
       
-      // Update status to processing
+      // Update status to processing with appropriate message
       updatedFiles[index] = {
         ...updatedFiles[index],
         status: 'processing',
@@ -78,14 +78,16 @@ export default function Home() {
       setFiles([...updatedFiles]);
       
       try {
-        // Parse the file
-        const content = await parseFile(fileToProcess.file, fileToProcess.type);
+        // Parse the file (returns { text, isScanned?, base64Data? })
+        const result = await parseFile(fileToProcess.file, fileToProcess.type);
         
         // Update with parsed content
         updatedFiles[index] = {
           ...updatedFiles[index],
           status: 'completed',
-          parsedContent: content,
+          parsedContent: result.text,
+          isScanned: result.isScanned,
+          base64Data: result.base64Data,
         };
       } catch (error) {
         // Update with error
@@ -156,6 +158,9 @@ export default function Home() {
           fileName: f.file.name,
           content: f.parsedContent || '',
           type: f.type,
+          // Include scanned PDF data for OCR processing
+          isScanned: f.isScanned,
+          base64Data: f.base64Data,
         }));
       }
 
@@ -259,7 +264,38 @@ export default function Home() {
                 (PDF, Word, or Excel file)
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              {/* Important Warning */}
+              <div className="border-l-4 border-warning bg-warning/10 p-4 rounded-r-lg">
+                <div className="flex items-start gap-3">
+                  <div className="text-warning text-2xl flex-shrink-0 mt-0.5">⚠️</div>
+                  <div className="space-y-3 flex-1">
+                    <h3 className="font-bold text-lg text-neutral-900">Portfolio Documents Only</h3>
+                    <p className="text-sm text-neutral-700 leading-relaxed">
+                      This tool is designed to analyse <strong className="text-neutral-900">portfolio holdings only</strong>. 
+                      If your document contains multiple sections (e.g., goals, expenses, estate planning, 
+                      income, liabilities, etc.) with the portfolio on just one page or section:
+                    </p>
+                    <div>
+                      <p className="text-sm font-bold text-neutral-900 mb-2 flex items-center gap-2">
+                        <span className="text-success text-lg">✓</span>
+                        Do This Instead:
+                      </p>
+                      <p className="text-sm text-neutral-800 leading-relaxed">
+                        Copy and paste <strong className="text-neutral-900">ONLY the portfolio section</strong> using the
+                        <strong className="text-neutral-900"> "Copy & Paste Portfolio Data"</strong> field below, rather than uploading the entire document.
+                      </p>
+                    </div>
+                    <div className="text-xs text-neutral-700 pl-4 italic border-l-2 border-neutral-300">
+                      <strong className="text-neutral-900 not-italic">Example:</strong> If your document has a table of contents showing "Your Goals, 
+                      Your Income, Your Expenses, Your Assets, Your Liabilities, Your Superannuation, 
+                      Estate Planning, Market Review... <em className="text-neutral-900">Portfolio (page 17)</em>", 
+                      copy just the portfolio section from page 17, not the whole document.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <FileUploadZone
                 files={files}
                 onFilesChange={handleFilesChange}

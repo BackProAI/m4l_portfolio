@@ -46,6 +46,9 @@ const AnalyseRequestSchema = z.object({
       fileName: z.string(),
       content: z.string(),
       type: z.enum(['pdf', 'docx', 'xlsx', 'xls']),
+      // Optional fields for scanned PDF OCR support
+      isScanned: z.boolean().optional(),
+      base64Data: z.string().optional(),
     })
   ).min(1, 'At least one file is required'),
 });
@@ -83,7 +86,11 @@ export async function POST(request: NextRequest) {
   }
 
   // Build prompt
-  const documentContent = combineDocumentContents(files);
+  // For scanned PDFs, we'll pass them as document blocks to Claude
+  const scannedPDFs = files.filter(f => f.isScanned && f.base64Data && f.type === 'pdf');
+  const textFiles = files.filter(f => !f.isScanned || !f.base64Data);
+  
+  const documentContent = combineDocumentContents(textFiles);
   const { system, user } = buildAnalysisPrompt(profile, documentContent);
   const maxTokens = process.env.CLAUDE_MAX_TOKENS ? parseInt(process.env.CLAUDE_MAX_TOKENS, 10) : 8000;
   const temperature = process.env.CLAUDE_TEMPERATURE ? parseFloat(process.env.CLAUDE_TEMPERATURE) : 0.3;
@@ -96,6 +103,14 @@ export async function POST(request: NextRequest) {
         controller.enqueue(new TextEncoder().encode(str));
       };
 
+      let isClosed = false;
+      const closeController = () => {
+        if (!isClosed) {
+          controller.close();
+          isClosed = true;
+        }
+      };
+
       try {
         // Emit initial progress
         encode({ type: 'progress', step: 0, total: 10, label: 'Starting analysis...' });
@@ -106,6 +121,10 @@ export async function POST(request: NextRequest) {
           maxTokens,
           temperature,
           includeRiskSummary: profile.includeRiskSummary === true,
+          scannedPDFs: scannedPDFs.map(f => ({
+            fileName: f.fileName,
+            base64Data: f.base64Data!,
+          })),
           onProgress(step, total, label) {
             encode({ type: 'progress', step, total, label });
           },
@@ -113,7 +132,7 @@ export async function POST(request: NextRequest) {
 
         if (!result.success) {
           encode({ type: 'error', error: result.error || 'Failed to analyse portfolio' });
-          controller.close();
+          closeController();
           return;
         }
 
@@ -128,7 +147,7 @@ export async function POST(request: NextRequest) {
           }
         } catch {
           encode({ type: 'error', error: 'Failed to parse analysis results. Please try again.' });
-          controller.close();
+          closeController();
           return;
         }
 
@@ -152,7 +171,7 @@ export async function POST(request: NextRequest) {
       } catch (err: any) {
         encode({ type: 'error', error: err.message || 'An unexpected error occurred' });
       } finally {
-        controller.close();
+        closeController();
       }
     },
   });

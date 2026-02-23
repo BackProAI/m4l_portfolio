@@ -277,9 +277,13 @@ export function FileUploadZone({
                           size="sm"
                         >
                           {file.status === 'completed'
-                            ? 'Ready'
+                            ? file.isScanned 
+                              ? 'Ready (OCR)'
+                              : 'Ready'
                             : file.status === 'processing'
-                            ? 'Processing...'
+                            ? file.isScanned
+                              ? 'Analyzing scanned PDF...'
+                              : 'Processing...'
                             : file.status === 'error'
                             ? 'Error'
                             : 'Pending'}

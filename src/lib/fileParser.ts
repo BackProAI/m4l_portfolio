@@ -3,10 +3,34 @@ import * as XLSX from 'xlsx';
 import type { FileType } from '@/types';
 
 // ============================================================================
+// Type Definitions
+// ============================================================================
+
+export interface ParsedFileResult {
+  text: string;
+  isScanned?: boolean;
+  base64Data?: string;
+}
+
+// ============================================================================
+// Helper: Convert File to Base64
+// ============================================================================
+
+async function fileToBase64(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// ============================================================================
 // PDF Parser
 // ============================================================================
 
-export async function parsePDF(file: File): Promise<string> {
+export async function parsePDF(file: File): Promise<ParsedFileResult> {
   // Dynamically import PDF.js only on client side when needed
   if (typeof window === 'undefined') {
     throw new Error('PDF parsing is only available in the browser');
@@ -41,7 +65,26 @@ export async function parsePDF(file: File): Promise<string> {
       fullText += pageText + '\n\n';
     }
     
-    return fullText.trim();
+    const trimmedText = fullText.trim();
+    
+    // Detect if PDF is scanned (no extractable text or very minimal text)
+    // Using 50 characters as threshold - scanned PDFs often return empty or just metadata
+    const isScanned = trimmedText.length < 50;
+    
+    if (isScanned) {
+      // For scanned PDFs, include base64 data for Claude's document API
+      const base64Data = await fileToBase64(file);
+      return {
+        text: trimmedText,
+        isScanned: true,
+        base64Data,
+      };
+    }
+    
+    return {
+      text: trimmedText,
+      isScanned: false,
+    };
   } catch (error) {
     console.error('PDF parsing error:', error);
     throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -52,7 +95,7 @@ export async function parsePDF(file: File): Promise<string> {
 // Word Document Parser (.docx)
 // ============================================================================
 
-export async function parseDocx(file: File): Promise<string> {
+export async function parseDocx(file: File): Promise<ParsedFileResult> {
   try {
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer });
@@ -61,7 +104,10 @@ export async function parseDocx(file: File): Promise<string> {
       console.warn('Word parsing warnings:', result.messages);
     }
     
-    return result.value.trim();
+    return {
+      text: result.value.trim(),
+      isScanned: false,
+    };
   } catch (error) {
     console.error('DOCX parsing error:', error);
     throw new Error(`Failed to parse Word document: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -72,7 +118,7 @@ export async function parseDocx(file: File): Promise<string> {
 // Excel Parser (.xlsx, .xls)
 // ============================================================================
 
-export async function parseExcel(file: File): Promise<string> {
+export async function parseExcel(file: File): Promise<ParsedFileResult> {
   try {
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
@@ -91,7 +137,10 @@ export async function parseExcel(file: File): Promise<string> {
       fullText += csv + '\n';
     });
     
-    return fullText.trim();
+    return {
+      text: fullText.trim(),
+      isScanned: false,
+    };
   } catch (error) {
     console.error('Excel parsing error:', error);
     throw new Error(`Failed to parse Excel file: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -102,7 +151,7 @@ export async function parseExcel(file: File): Promise<string> {
 // Main Parser Function - Routes to appropriate parser
 // ============================================================================
 
-export async function parseFile(file: File, type: FileType): Promise<string> {
+export async function parseFile(file: File, type: FileType): Promise<ParsedFileResult> {
   switch (type) {
     case 'pdf':
       return parsePDF(file);

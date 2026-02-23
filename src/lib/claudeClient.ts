@@ -19,6 +19,11 @@ export interface AnalysePortfolioParams {
   onProgress?: (step: number, total: number, label: string) => void;
   /** Whether the user requested a Portfolio Risk Summary — affects the progress curve. */
   includeRiskSummary?: boolean;
+  /** Scanned PDFs to send as document blocks (uses Claude's native PDF support with OCR) */
+  scannedPDFs?: Array<{
+    fileName: string;
+    base64Data: string;
+  }>;
 }
 
 export interface AnalysePortfolioResult {
@@ -52,7 +57,7 @@ export async function analysePortfolio({
 
     // Call Claude API
     const response = await anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      model: process.env.CLAUDE_MODEL || 'claude-4.5-haiku-20260219',
       max_tokens: maxTokens,
       temperature,
       system: systemPrompt,
@@ -130,6 +135,7 @@ export async function analysePortfolioWithTools({
   temperature = 0.3,
   onProgress,
   includeRiskSummary = false,
+  scannedPDFs = [],
 }: AnalysePortfolioParams): Promise<AnalysePortfolioResult> {
   try {
     // Validate API key
@@ -140,11 +146,39 @@ export async function analysePortfolioWithTools({
       };
     }
 
+    // Build user message content
+    // For scanned PDFs, use document blocks; otherwise use text
+    const userContent: Anthropic.MessageParam['content'] = [];
+    
+    // Add text content if present
+    if (userPrompt.trim()) {
+      userContent.push({
+        type: 'text',
+        text: userPrompt,
+      });
+    }
+    
+    // Add scanned PDFs as document blocks (uses Claude's native PDF + OCR support)
+    if (scannedPDFs.length > 0) {
+      for (const pdf of scannedPDFs) {
+        userContent.push({
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: 'application/pdf',
+            data: pdf.base64Data,
+          },
+        } as Anthropic.DocumentBlockParam);
+      }
+    }
+
     // Initialize message history
     const messages: Anthropic.MessageParam[] = [
       {
         role: 'user',
-        content: userPrompt,
+        content: userContent.length === 1 && typeof userContent[0] === 'object' && 'text' in userContent[0]
+          ? userContent[0].text  // Single text block - use string format
+          : userContent,          // Multiple blocks or documents - use array format
       },
     ];
 
@@ -166,7 +200,7 @@ export async function analysePortfolioWithTools({
 
       // Call Claude API with tools
       response = await anthropic.messages.create({
-        model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+        model: process.env.CLAUDE_MODEL || 'claude-4.5-haiku-20260219',
         max_tokens: maxTokens,
         temperature,
         system: systemPrompt,
