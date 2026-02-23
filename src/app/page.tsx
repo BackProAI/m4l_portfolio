@@ -325,7 +325,7 @@ export default function Home() {
             AI Portfolio Analysis Tool
           </h1>
           <p className="text-neutral-500 text-lg">
-            Powered by BackPro AI
+            Powered by BackPro
           </p>
         </div>
 
