@@ -6,6 +6,8 @@ import type { InvestorProfile, FileType } from '@/types';
 
 // Tell Vercel to allow up to 300 seconds (max on Pro/Enterprise) for this route
 export const maxDuration = 300;
+// Force dynamic rendering to enable proper SSE streaming (required for ReadableStream)
+export const dynamic = 'force-dynamic';
 
 // ============================================================================
 // API Route: /api/analyze - Portfolio Analysis Endpoint
