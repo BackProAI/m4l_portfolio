@@ -102,18 +102,36 @@ export async function POST(request: NextRequest) {
     async start(controller) {
       const encode = (data: object) => {
         const str = `data: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(new TextEncoder().encode(str));
+        const bytes = new TextEncoder().encode(str);
+        console.log('[API] 📝 ENCODE: Enqueueing data:', {
+          dataType: (data as any).type,
+          byteLength: bytes.length,
+          controllerClosed: isClosed,
+          timestamp: Date.now()
+        });
+        controller.enqueue(bytes);
+        console.log('[API] ✓ ENQUEUED: Data added to controller queue');
       };
 
       let isClosed = false;
       const closeController = () => {
         if (!isClosed) {
+          console.log('[API] 🔐 CLOSE CONTROLLER: Attempting to close stream...');
           controller.close();
           isClosed = true;
+          console.log('[API] ✅ CONTROLLER CLOSED: Stream is now closed');
+        } else {
+          console.warn('[API] ⚠️ CLOSE CALLED ON ALREADY CLOSED CONTROLLER');
         }
       };
 
       try {
+        console.log('[API] 🚀 STREAM START:', {
+          timestamp: Date.now(),
+          profileType: profile.investorType,
+          fileCount: files.length
+        });
+        
         // Emit initial progress
         encode({ type: 'progress', step: 0, total: 10, label: 'Starting analysis...' });
 
@@ -133,8 +151,9 @@ export async function POST(request: NextRequest) {
         });
 
         if (!result.success) {
-          console.error('[API] Claude analysis failed:', result.error);
+          console.error('[API] ❌ Claude analysis failed:', result.error);
           encode({ type: 'error', error: result.error || 'Failed to analyse portfolio' });
+          console.log('[API] ⏳ ERROR PATH: Waiting 500ms before close...');
           await new Promise(resolve => setTimeout(resolve, 500));
           closeController();
           return;
@@ -204,6 +223,7 @@ export async function POST(request: NextRequest) {
             errorMsg += 'Please try again.';
           }
           
+          console.log('[API] ⚠️ PARSE ERROR PATH: Closing immediately (NO DELAY)');
           encode({ type: 'error', error: errorMsg });
           closeController();
           return;
@@ -227,17 +247,36 @@ export async function POST(request: NextRequest) {
           },
         };
         
-        console.log('[API] Sending final result:', {
+        const resultJson = JSON.stringify(resultData);
+        console.log('[API] 📤 BEFORE ENCODE: Preparing to send result:', {
           timestamp: Date.now(),
-          resultSize: JSON.stringify(resultData).length,
-          aboutToClose: true
+          resultSize: resultJson.length,
+          resultSizeKB: (resultJson.length / 1024).toFixed(2),
+          controllerClosed: isClosed,
         });
         
         encode(resultData);
+        
+        console.log('[API] ✅ AFTER ENCODE: Data enqueued to stream:', {
+          timestamp: Date.now(),
+          controllerClosed: isClosed,
+          message: 'Data written to controller queue, waiting for flush...'
+        });
+        
+        // Wait for buffer to flush before closing stream (prevents truncation)
+        console.log('[API] ⏳ FLUSH DELAY START: Waiting 500ms for buffers to flush...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log('[API] ⏳ FLUSH DELAY END: 500ms elapsed, closing stream now');
+        
         closeController();
+        console.log('[API] 🔒 STREAM CLOSED:', {
+          timestamp: Date.now(),
+          controllerClosed: isClosed
+        });
       } catch (err: any) {
-        console.error('[API] Unexpected error in stream handler:', err);
+        console.error('[API] 💥 UNEXPECTED ERROR in stream handler:', err);
         encode({ type: 'error', error: err.message || 'An unexpected error occurred' });
+        console.log('[API] ⚠️ UNEXPECTED ERROR PATH: Closing immediately (NO DELAY)');
         closeController();
       }
     },

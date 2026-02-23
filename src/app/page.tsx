@@ -182,40 +182,106 @@ export default function Home() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let chunkCount = 0;
+      let totalBytesReceived = 0;
+
+      console.log('[Client] 🚀 SSE STREAM START:', {
+        timestamp: Date.now(),
+        responseOk: response.ok,
+        status: response.status
+      });
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        
+        if (value) {
+          chunkCount++;
+          totalBytesReceived += value.length;
+          console.log('[Client] 📦 CHUNK RECEIVED:', {
+            chunkNumber: chunkCount,
+            chunkBytes: value.length,
+            totalBytes: totalBytesReceived,
+            timestamp: Date.now()
+          });
+        }
+        
+        if (done) {
+          console.log('[Client] ✅ STREAM DONE:', {
+            timestamp: Date.now(),
+            totalChunks: chunkCount,
+            totalBytesReceived,
+            bufferRemaining: buffer.length,
+            bufferContent: buffer.substring(0, 200)
+          });
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
+
+        console.log('[Client] 📝 BUFFER UPDATE:', {
+          bufferLength: buffer.length,
+          bufferSizeKB: (buffer.length / 1024).toFixed(2),
+          timestamp: Date.now()
+        });
 
         // SSE lines are delimited by "\n\n"
         const parts = buffer.split('\n\n');
         buffer = parts.pop() ?? ''; // keep incomplete tail
 
+        console.log('[Client] ✂️ SPLIT BUFFER:', {
+          messageParts: parts.length,
+          remainingBuffer: buffer.length,
+          timestamp: Date.now()
+        });
+
         for (const part of parts) {
           const line = part.trim();
           if (!line.startsWith('data: ')) continue;
 
+          console.log('[Client] 🔍 PARSING MESSAGE:', {
+            lineLength: line.length,
+            preview: line.substring(0, 100),
+            timestamp: Date.now()
+          });
+
           let event: any;
           try {
             event = JSON.parse(line.slice(6));
-          } catch {
+            console.log('[Client] ✅ PARSED EVENT:', {
+              type: event.type,
+              timestamp: Date.now()
+            });
+          } catch (parseError) {
+            console.error('[Client] ❌ JSON PARSE ERROR:', {
+              error: parseError,
+              lineLength: line.length,
+              linePreview: line.substring(0, 200),
+              lineSuffix: line.substring(Math.max(0, line.length - 200)),
+              timestamp: Date.now()
+            });
             continue;
           }
 
           if (event.type === 'progress') {
             const pct = Math.round((event.step / event.total) * 100);
+            console.log('[Client] ⏳ PROGRESS UPDATE:', {
+              step: event.step,
+              total: event.total,
+              percent: pct,
+              label: event.label
+            });
             setAnalysisProgress(pct);
             setAnalysisProgressLabel(event.label ?? undefined);
           } else if (event.type === 'result') {
-            console.log('[Client] Result received:', {
+            console.log('[Client] 🎉 RESULT RECEIVED:', {
               timestamp: Date.now(),
               dataKeys: Object.keys(event.data.analysis),
               hasMarkdown: !!event.data.analysis.markdown,
               hasChartData: !!event.data.analysis.chartData,
               markdownLength: event.data.analysis.markdown?.length,
-              size: JSON.stringify(event.data).length
+              chartDataKeys: event.data.analysis.chartData ? Object.keys(event.data.analysis.chartData) : [],
+              totalSize: JSON.stringify(event.data).length,
+              totalSizeKB: (JSON.stringify(event.data).length / 1024).toFixed(2)
             });
             setAnalysisResult(event.data.analysis);
             setAnalysisProgress(100);
@@ -223,13 +289,20 @@ export default function Home() {
               document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' });
             }, 100);
           } else if (event.type === 'error') {
-            console.error('[Client] Error event received:', event.error);
+            console.error('[Client] ❌ ERROR EVENT:', {
+              error: event.error,
+              timestamp: Date.now()
+            });
             throw new Error(event.error || 'Analysis failed');
           }
         }
       }
     } catch (error) {
-      console.error('Analysis error:', error);
+      console.error('[Client] 💥 ANALYSIS ERROR:', {
+        error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: Date.now()
+      });
       setAnalysisError(
         error instanceof Error ? error.message : 'Failed to analyse portfolio. Please try again.'
       );
