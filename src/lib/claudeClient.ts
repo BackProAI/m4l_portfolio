@@ -57,7 +57,7 @@ export async function analysePortfolio({
 
     // Call Claude API
     const response = await anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-4.5-haiku-20260219',
+      model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
       max_tokens: maxTokens,
       temperature,
       system: systemPrompt,
@@ -200,7 +200,7 @@ export async function analysePortfolioWithTools({
 
       // Call Claude API with tools
       response = await anthropic.messages.create({
-        model: process.env.CLAUDE_MODEL || 'claude-4.5-haiku-20260219',
+        model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: maxTokens,
         temperature,
         system: systemPrompt,
