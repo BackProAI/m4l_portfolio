@@ -213,7 +213,7 @@ export async function analysePortfolioWithTools({
       totalOutputTokens += response.usage.output_tokens;
 
       // Check stop reason
-      if (response.stop_reason === 'end_turn') {
+      if (response.stop_reason === 'end_turn' || response.stop_reason === 'max_tokens') {
         // Claude finished - extract text content
         const textContent = response.content
           .filter((block) => block.type === 'text')
@@ -229,6 +229,11 @@ export async function analysePortfolioWithTools({
 
         // Report 100% completion
         onProgress?.(1, 1, 'Finalising analysis...');
+
+        // Log warning if hit max tokens (response may be truncated)
+        if (response.stop_reason === 'max_tokens') {
+          console.warn('Claude response hit max_tokens limit - response may be truncated');
+        }
 
         return {
           success: true,

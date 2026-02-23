@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
   
   const documentContent = combineDocumentContents(textFiles);
   const { system, user } = buildAnalysisPrompt(profile, documentContent);
-  const maxTokens = process.env.CLAUDE_MAX_TOKENS ? parseInt(process.env.CLAUDE_MAX_TOKENS, 10) : 8000;
+  const maxTokens = process.env.CLAUDE_MAX_TOKENS ? parseInt(process.env.CLAUDE_MAX_TOKENS, 10) : 16000;
   const temperature = process.env.CLAUDE_TEMPERATURE ? parseFloat(process.env.CLAUDE_TEMPERATURE) : 0.3;
 
   // Return a Server-Sent Events stream
@@ -141,12 +141,40 @@ export async function POST(request: NextRequest) {
         try {
           let jsonStr = result.content || '';
           jsonStr = jsonStr.replace(/^```json\n?/i, '').replace(/\n?```$/, '').trim();
-          analysisData = JSON.parse(jsonStr);
-          if (!analysisData.markdown || !analysisData.chartData) {
-            throw new Error('Invalid response structure from Claude');
+          
+          // Log the raw response for debugging truncation issues
+          if (jsonStr.length > 100000) {
+            console.warn('Very large response:', jsonStr.length, 'characters');
           }
-        } catch {
-          encode({ type: 'error', error: 'Failed to parse analysis results. Please try again.' });
+          
+          analysisData = JSON.parse(jsonStr);
+          
+          // Check if Claude returned an error response
+          if (analysisData.error) {
+            encode({ type: 'error', error: analysisData.error });
+            closeController();
+            return;
+          }
+          
+          if (!analysisData.markdown || !analysisData.chartData) {
+            throw new Error('Invalid response structure - missing markdown or chartData');
+          }
+        } catch (parseError) {
+          console.error('Failed to parse response:', parseError);
+          console.error('Response length:', result.content?.length || 0, 'characters');
+          console.error('First 500 chars:', result.content?.substring(0, 500));
+          console.error('Last 500 chars:', result.content?.substring((result.content?.length || 0) - 500));
+          
+          let errorMsg = 'Failed to parse analysis results. ';
+          if (parseError instanceof SyntaxError) {
+            errorMsg += 'The response may have been truncated. Please try again.';
+          } else if (parseError instanceof Error) {
+            errorMsg += parseError.message;
+          } else {
+            errorMsg += 'Please try again.';
+          }
+          
+          encode({ type: 'error', error: errorMsg });
           closeController();
           return;
         }

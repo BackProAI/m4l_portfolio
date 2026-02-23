@@ -150,7 +150,7 @@ export default function Home() {
           {
             fileName: 'pasted-content.txt',
             content: pastedContent,
-            type: 'pdf' as const,
+            type: 'docx' as const, // Use docx type for plain text to avoid OCR processing
           },
         ];
       } else {
