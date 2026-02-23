@@ -232,7 +232,15 @@ export async function analysePortfolioWithTools({
 
         // Log warning if hit max tokens (response may be truncated)
         if (response.stop_reason === 'max_tokens') {
-          console.warn('Claude response hit max_tokens limit - response may be truncated');
+          console.warn('[Claude] Response hit max_tokens limit - response may be truncated');
+          console.warn('[Claude] Token usage:', {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            maxTokens,
+            utilizationPct: Math.round((totalOutputTokens / maxTokens) * 100)
+          });
+          console.warn('[Claude] Content length:', textContent.length, 'characters');
+          console.warn('[Claude] Content preview (last 200 chars):', textContent.substring(textContent.length - 200));
         }
 
         return {

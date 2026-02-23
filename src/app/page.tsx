@@ -209,12 +209,21 @@ export default function Home() {
             setAnalysisProgress(pct);
             setAnalysisProgressLabel(event.label ?? undefined);
           } else if (event.type === 'result') {
+            console.log('[Client] Result received:', {
+              timestamp: Date.now(),
+              dataKeys: Object.keys(event.data.analysis),
+              hasMarkdown: !!event.data.analysis.markdown,
+              hasChartData: !!event.data.analysis.chartData,
+              markdownLength: event.data.analysis.markdown?.length,
+              size: JSON.stringify(event.data).length
+            });
             setAnalysisResult(event.data.analysis);
             setAnalysisProgress(100);
             setTimeout(() => {
               document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' });
             }, 100);
           } else if (event.type === 'error') {
+            console.error('[Client] Error event received:', event.error);
             throw new Error(event.error || 'Analysis failed');
           }
         }

@@ -131,8 +131,9 @@ export async function POST(request: NextRequest) {
         });
 
         if (!result.success) {
+          console.error('[API] Claude analysis failed:', result.error);
           encode({ type: 'error', error: result.error || 'Failed to analyse portfolio' });
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 500));
           closeController();
           return;
         }
@@ -144,32 +145,57 @@ export async function POST(request: NextRequest) {
           jsonStr = jsonStr.replace(/^```json\n?/i, '').replace(/\n?```$/, '').trim();
           
           // Log the raw response for debugging truncation issues
+          console.log('[API] Response size:', jsonStr.length, 'characters');
+          console.log('[API] Response preview (first 200 chars):', jsonStr.substring(0, 200));
+          console.log('[API] Response preview (last 200 chars):', jsonStr.substring(Math.max(0, jsonStr.length - 200)));
+          
           if (jsonStr.length > 100000) {
-            console.warn('Very large response:', jsonStr.length, 'characters');
+            console.warn('[API] Very large response:', jsonStr.length, 'characters');
           }
           
           analysisData = JSON.parse(jsonStr);
           
           // Check if Claude returned an error response
           if (analysisData.error) {
+            console.error('[API] Claude returned error in response:', analysisData.error);
             encode({ type: 'error', error: analysisData.error });
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 500));
             closeController();
             return;
           }
           
           if (!analysisData.markdown || !analysisData.chartData) {
+            console.error('[API] Invalid response structure:', {
+              hasMarkdown: !!analysisData.markdown,
+              hasChartData: !!analysisData.chartData,
+              keys: Object.keys(analysisData)
+            });
             throw new Error('Invalid response structure - missing markdown or chartData');
           }
+          
+          console.log('[API] Successfully parsed response:', {
+            markdownLength: analysisData.markdown?.length,
+            chartDataKeys: Object.keys(analysisData.chartData || {}),
+            hasHoldings: !!analysisData.chartData?.holdingsPerformance,
+            hasRiskSummary: !!analysisData.chartData?.portfolioRisk
+          });
         } catch (parseError) {
-          console.error('Failed to parse response:', parseError);
-          console.error('Response length:', result.content?.length || 0, 'characters');
-          console.error('First 500 chars:', result.content?.substring(0, 500));
-          console.error('Last 500 chars:', result.content?.substring((result.content?.length || 0) - 500));
+          console.error('[API] Failed to parse response:', parseError);
+          console.error('[API] Response length:', result.content?.length || 0, 'characters');
+          console.error('[API] Model used:', result.model);
+          console.error('[API] Token usage:', result.usage);
+          console.error('[API] First 500 chars:', result.content?.substring(0, 500));
+          console.error('[API] Last 500 chars:', result.content?.substring((result.content?.length || 0) - 500));
           
           let errorMsg = 'Failed to parse analysis results. ';
           if (parseError instanceof SyntaxError) {
-            errorMsg += 'The response may have been truncated. Please try again.';
+            errorMsg += `Response appears truncated (${result.content?.length || 0} chars). `;
+            // Check if we hit max tokens (fix TypeScript error with nullish coalescing)
+            if ((result.usage?.outputTokens ?? 0) >= (maxTokens * 0.95)) {
+              errorMsg += 'The analysis was too long and was cut off. Please try with a smaller portfolio or disable risk summary. ';
+            } else {
+              errorMsg += 'This may be a network issue. Please try again. ';
+            }
           } else if (parseError instanceof Error) {
             errorMsg += parseError.message;
           } else {
@@ -177,13 +203,12 @@ export async function POST(request: NextRequest) {
           }
           
           encode({ type: 'error', error: errorMsg });
-          await new Promise(resolve => setTimeout(resolve, 100));
           closeController();
           return;
         }
 
         // Emit the final result
-        encode({
+        const resultData = {
           type: 'result',
           data: {
             analysis: analysisData,
@@ -198,16 +223,19 @@ export async function POST(request: NextRequest) {
               },
             },
           },
+        };
+        
+        console.log('[API] Sending final result:', {
+          timestamp: Date.now(),
+          resultSize: JSON.stringify(resultData).length,
+          aboutToClose: true
         });
         
-        // Wait for network buffers to flush before closing stream
-        // This prevents race condition in serverless where execution context
-        // can terminate before enqueued data is transmitted to client
-        await new Promise(resolve => setTimeout(resolve, 100));
+        encode(resultData);
         closeController();
       } catch (err: any) {
+        console.error('[API] Unexpected error in stream handler:', err);
         encode({ type: 'error', error: err.message || 'An unexpected error occurred' });
-        await new Promise(resolve => setTimeout(resolve, 100));
         closeController();
       }
     },
@@ -218,6 +246,7 @@ export async function POST(request: NextRequest) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
+      'Content-Encoding': 'none', // Prevent gzip buffering in Next.js (see: github.com/vercel/next.js/discussions/48427)
     },
   });
 }
