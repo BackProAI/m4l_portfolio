@@ -277,6 +277,11 @@ function HoldingsTable({ holdings }: HoldingsTableProps) {
           {holdings.map((holding) => {
             const performanceEntries = holding.performance ?? [];
             const avgReturn = calculateAverage(performanceEntries.map(p => p.return));
+            
+            // Prioritize totalReturnForTimeframe, fall back to average of historical performance
+            const displayReturn = holding.totalReturnForTimeframe !== undefined 
+              ? holding.totalReturnForTimeframe 
+              : avgReturn;
 
             return (
               <tr key={holding.name} className="border-b border-neutral-200 hover:bg-neutral-50">
@@ -295,8 +300,8 @@ function HoldingsTable({ holdings }: HoldingsTableProps) {
                 <td className="p-3 text-right text-neutral-700">
                   {holding.percentage.toFixed(1)}%
                 </td>
-                <td className={`p-3 text-right font-medium ${avgReturn !== null && avgReturn >= 0 ? 'text-success' : 'text-error'}`}>
-                  {avgReturn !== null ? `${avgReturn.toFixed(2)}%` : 'N/A'}
+                <td className={`p-3 text-right font-medium ${displayReturn !== null && displayReturn >= 0 ? 'text-success' : 'text-error'}`}>
+                  {displayReturn !== null ? `${displayReturn.toFixed(2)}%` : 'N/A'}
                 </td>
               </tr>
             );
@@ -316,6 +321,11 @@ function HoldingDetailCard({ holding, color }: HoldingDetailCardProps) {
   const performanceEntries = holding.performance ?? [];
   const volatilityEntries = holding.volatility ?? [];
   const avgReturn = calculateAverage(performanceEntries.map(p => p.return));
+  
+  // Prioritize totalReturnForTimeframe, fall back to average of historical performance
+  const displayReturn = holding.totalReturnForTimeframe !== undefined 
+    ? holding.totalReturnForTimeframe 
+    : avgReturn;
 
   return (
     <Card>
@@ -353,8 +363,8 @@ function HoldingDetailCard({ holding, color }: HoldingDetailCardProps) {
             </div>
             <div>
               <p className="text-xs text-neutral-500 mb-1">Return</p>
-              <p className={`text-lg font-semibold ${avgReturn !== null && avgReturn >= 0 ? 'text-success' : 'text-error'}`}>
-                {avgReturn !== null ? `${avgReturn.toFixed(2)}%` : 'N/A'}
+              <p className={`text-lg font-semibold ${displayReturn !== null && displayReturn >= 0 ? 'text-success' : 'text-error'}`}>
+                {displayReturn !== null ? `${displayReturn.toFixed(2)}%` : 'N/A'}
               </p>
             </div>
           </div>

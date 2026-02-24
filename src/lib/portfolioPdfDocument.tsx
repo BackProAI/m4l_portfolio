@@ -452,23 +452,33 @@ const HoldingsOverviewTable = ({ holdings }: { holdings: HoldingPerformance[] })
     </View>
   );
 
-  const renderTableRow = (holding: HoldingPerformance, index: number) => (
-    <View key={index} style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 }}>
-      <Text style={{ flex: 3, fontSize: 9, color: COLORS.primary }}>{holding.name}</Text>
-      <Text style={{ flex: 4, fontSize: 8, color: COLORS.gray600 }}>
-        {holding.description.length > 60 ? holding.description.substring(0, 57) + '...' : holding.description}
-      </Text>
-      <Text style={{ flex: 2, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>
-        ${holding.currentValue.toLocaleString('en-AU')}
-      </Text>
-      <Text style={{ flex: 1.5, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>
-        {holding.percentage.toFixed(1)}%
-      </Text>
-      <Text style={{ flex: 1.5, fontSize: 9, color: holding.totalReturnForTimeframe !== undefined ? (holding.totalReturnForTimeframe >= 0 ? COLORS.success : COLORS.red) : COLORS.gray400, textAlign: 'right', fontWeight: 'bold' }}>
-        {holding.totalReturnForTimeframe !== undefined ? `${holding.totalReturnForTimeframe.toFixed(2)}%` : 'N/A'}
-      </Text>
-    </View>
-  );
+  const renderTableRow = (holding: HoldingPerformance, index: number) => {
+    // Prioritize totalReturnForTimeframe, fall back to average of historical performance
+    const avgReturn = holding.performance && holding.performance.length > 0
+      ? holding.performance.reduce((sum, p) => sum + p.return, 0) / holding.performance.length
+      : null;
+    const displayReturn = holding.totalReturnForTimeframe !== undefined 
+      ? holding.totalReturnForTimeframe 
+      : avgReturn;
+    
+    return (
+      <View key={index} style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 }}>
+        <Text style={{ flex: 3, fontSize: 9, color: COLORS.primary }}>{holding.name}</Text>
+        <Text style={{ flex: 4, fontSize: 8, color: COLORS.gray600 }}>
+          {holding.description.length > 60 ? holding.description.substring(0, 57) + '...' : holding.description}
+        </Text>
+        <Text style={{ flex: 2, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>
+          ${holding.currentValue.toLocaleString('en-AU')}
+        </Text>
+        <Text style={{ flex: 1.5, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>
+          {holding.percentage.toFixed(1)}%
+        </Text>
+        <Text style={{ flex: 1.5, fontSize: 9, color: displayReturn !== null ? (displayReturn >= 0 ? COLORS.success : COLORS.red) : COLORS.gray400, textAlign: 'right', fontWeight: 'bold' }}>
+          {displayReturn !== null ? `${displayReturn.toFixed(2)}%` : 'N/A'}
+        </Text>
+      </View>
+    );
+  };
 
   return (
     <View style={styles.card}>
@@ -568,14 +578,26 @@ const HoldingsPerformanceSection = ({ holdings }: { holdings: HoldingPerformance
                 {holding.percentage.toFixed(1)}%
               </Text>
             </View>
-            {holding.totalReturnForTimeframe !== undefined && (
-              <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 8, borderRadius: 4 }}>
-                <Text style={{ fontSize: 8, color: COLORS.gray600, marginBottom: 2 }}>Return</Text>
-                <Text style={{ fontSize: 12, fontWeight: 'bold', color: holding.totalReturnForTimeframe >= 0 ? COLORS.success : COLORS.red }}>
-                  {holding.totalReturnForTimeframe.toFixed(2)}%
-                </Text>
-              </View>
-            )}
+            <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 8, borderRadius: 4 }}>
+              <Text style={{ fontSize: 8, color: COLORS.gray600, marginBottom: 2 }}>Return</Text>
+              <Text style={{ fontSize: 12, fontWeight: 'bold', color: (() => {
+                const returnValue = holding.totalReturnForTimeframe !== undefined 
+                  ? holding.totalReturnForTimeframe 
+                  : (holding.performance && holding.performance.length > 0 
+                      ? holding.performance.reduce((sum, p) => sum + p.return, 0) / holding.performance.length 
+                      : null);
+                return returnValue !== null && returnValue >= 0 ? COLORS.success : returnValue !== null ? COLORS.red : COLORS.gray400;
+              })() }}>
+                {(() => {
+                  const returnValue = holding.totalReturnForTimeframe !== undefined 
+                    ? holding.totalReturnForTimeframe 
+                    : (holding.performance && holding.performance.length > 0 
+                        ? holding.performance.reduce((sum, p) => sum + p.return, 0) / holding.performance.length 
+                        : null);
+                  return returnValue !== null ? `${returnValue.toFixed(2)}%` : 'N/A';
+                })()}
+              </Text>
+            </View>
           </View>
 
           {/* Timeframe */}
