@@ -2,7 +2,11 @@
 // Web Search Tool - Fetches company and fund descriptions from the web
 // ============================================================================
 
+import YahooFinanceClass from 'yahoo-finance2';
 import { getAssetClassMetrics, getCorrelation, formatPercent } from './assetClassData';
+
+// Instantiate Yahoo Finance (v3 API requires instantiation)
+const yahooFinance = new YahooFinanceClass();
 
 interface SearchResult {
   description: string;
@@ -297,6 +301,133 @@ export async function getPortfolioRiskData(
   };
 }
 
+/**
+ * Parse date string in various formats and convert to YYYY-MM-DD
+ * Handles formats like:
+ * - "1 Jul 2024" or "01 July 2024"
+ * - "01/07/2024"
+ * - "2024-07-01"
+ */
+function parseFlexibleDate(dateStr: string): string {
+  // Try standard ISO format first
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+
+  // Try DD/MM/YYYY format
+  const ddmmyyyyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ddmmyyyyMatch) {
+    const [, day, month, year] = ddmmyyyyMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  // Try "1 Jul 2024" or "01 July 2024" format
+  const monthNames: Record<string, string> = {
+    jan: '01', january: '01',
+    feb: '02', february: '02',
+    mar: '03', march: '03',
+    apr: '04', april: '04',
+    may: '05',
+    jun: '06', june: '06',
+    jul: '07', july: '07',
+    aug: '08', august: '08',
+    sep: '09', sept: '09', september: '09',
+    oct: '10', october: '10',
+    nov: '11', november: '11',
+    dec: '12', december: '12',
+  };
+
+  const textDateMatch = dateStr.match(/^(\d{1,2})\s+(\w+)\s+(\d{4})$/);
+  if (textDateMatch) {
+    const [, day, monthText, year] = textDateMatch;
+    const month = monthNames[monthText.toLowerCase()];
+    if (month) {
+      return `${year}-${month}-${day.padStart(2, '0')}`;
+    }
+  }
+
+  // Fallback: try native Date parsing
+  const date = new Date(dateStr);
+  if (!isNaN(date.getTime())) {
+    return date.toISOString().split('T')[0];
+  }
+
+  throw new Error(`Unable to parse date: ${dateStr}`);
+}
+
+/**
+ * Search for holding return data using Yahoo Finance
+ * FALLBACK ONLY - Use this when return data is not available in portfolio documents
+ * 
+ * @param holdingName - Name of the holding (e.g., "Commonwealth Bank")
+ * @param ticker - Stock ticker symbol (e.g., "CBA.AX" for ASX stocks)
+ * @param timeframePeriod - Period string like "1 Jul 2024 to 30 Jun 2025"
+ * @returns Object with return data and sources
+ */
+export async function searchHoldingReturn(
+  holdingName: string,
+  ticker: string,
+  timeframePeriod: string
+): Promise<SearchResult> {
+  try {
+    // Parse the timeframe period
+    // Expected format: "1 Jul 2024 to 30 Jun 2025" or "01/07/2024 to 30/06/2025"
+    const periodMatch = timeframePeriod.match(/^(.+?)\s+to\s+(.+?)$/i);
+    if (!periodMatch) {
+      return {
+        description: `Unable to parse time period: ${timeframePeriod}. Expected format like "1 Jul 2024 to 30 Jun 2025"`,
+        sources: [],
+      };
+    }
+
+    const [, startDateStr, endDateStr] = periodMatch;
+    const startDate = parseFlexibleDate(startDateStr.trim());
+    const endDate = parseFlexibleDate(endDateStr.trim());
+
+    console.log(`[Yahoo Finance] Fetching return for ${ticker} from ${startDate} to ${endDate}`);
+
+    // Fetch historical data from Yahoo Finance using the correct v2 API
+    // @ts-ignore - Yahoo Finance types may not be fully complete
+    const queryResult = await yahooFinance.historical(ticker, {
+      period1: startDate,
+      period2: endDate,
+    });
+
+    if (!queryResult || queryResult.length === 0) {
+      return {
+        description: `No historical data found for ${ticker} (${holdingName}) on Yahoo Finance for the period ${timeframePeriod}. This ticker may not be available or the date range may be invalid.`,
+        sources: [],
+      };
+    }
+
+    // Calculate total return from first and last quotes
+    const startPrice = queryResult[0].adjClose ?? queryResult[0].close;
+    const endPrice = queryResult[queryResult.length - 1].adjClose ?? queryResult[queryResult.length - 1].close;
+    
+    if (!startPrice || !endPrice) {
+      return {
+        description: `Incomplete price data for ${ticker} (${holdingName}). Start or end price missing.`,
+        sources: [],
+      };
+    }
+
+    const totalReturn = ((endPrice - startPrice) / startPrice) * 100;
+
+    const description = `${holdingName} (${ticker}): Total return over the time period ${timeframePeriod} is ${totalReturn.toFixed(2)}%. Start price: $${startPrice.toFixed(2)}, End price: $${endPrice.toFixed(2)}. Data retrieved from Yahoo Finance historical prices.`;
+
+    return {
+      description,
+      sources: [`Yahoo Finance - ${ticker}`],
+    };
+  } catch (error) {
+    console.error(`[Yahoo Finance] Error fetching return for ${ticker}:`, error);
+    return {
+      description: `Failed to retrieve return data for ${holdingName} (${ticker}): ${error instanceof Error ? error.message : 'Unknown error'}. Please ensure the ticker symbol is correct and has the appropriate suffix (e.g., .AX for ASX stocks).`,
+      sources: [],
+    };
+  }
+}
+
 async function performGeneralSearch(query: string, fallbackDescription: string): Promise<SearchResult> {
   try {
     if (!process.env.BRAVE_SEARCH_API_KEY) {
@@ -442,6 +573,28 @@ export const SEARCH_TOOLS = [
       },
       required: ["asset_classes"],
     },
+  },
+  {
+    name: "search_holding_return",
+    description: "FALLBACK TOOL - Fetch historical return data for a specific holding using Yahoo Finance when return data is NOT available in the portfolio documents. Use this ONLY when the portfolio does not contain return/performance data for a holding. Requires ticker symbol (e.g., 'CBA.AX' for Australian stocks - always add .AX suffix for ASX stocks, 'AAPL' for US stocks) and the exact time period from the portfolio statement.",
+    input_schema: {
+      type: "object",
+      properties: {
+        holding_name: {
+          type: "string",
+          description: "Name of the holding (e.g., 'Commonwealth Bank', 'BHP Group')",
+        },
+        ticker: {
+          type: "string",
+          description: "Stock ticker symbol. IMPORTANT: For ASX stocks, MUST include .AX suffix (e.g., 'CBA.AX', 'BHP.AX'). For US stocks, use standard symbol (e.g., 'AAPL', 'MSFT').",
+        },
+        timeframe_period: {
+          type: "string",
+          description: "Exact time period string from the portfolio statement (e.g., '1 Jul 2024 to 30 Jun 2025' or '01/07/2024 to 30/06/2025'). Must include 'to' separator.",
+        },
+      },
+      required: ["holding_name", "ticker", "timeframe_period"],
+    },
   }
 ] as const;
 
@@ -490,6 +643,14 @@ export async function executeSearchTool(
       case 'get_portfolio_risk_data':
         result = await getPortfolioRiskData(
           toolInput.asset_classes
+        );
+        return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
+      
+      case 'search_holding_return':
+        result = await searchHoldingReturn(
+          toolInput.holding_name,
+          toolInput.ticker,
+          toolInput.timeframe_period
         );
         return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
         

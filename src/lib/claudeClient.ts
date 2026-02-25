@@ -299,6 +299,14 @@ export async function analysePortfolioWithTools({
             case 'search_asset_class_correlation':
               label = `Searching correlation for '${inp.asset_class_a}' and '${inp.asset_class_b}'`;
               break;
+            case 'search_holding_return':
+              label = `Fetching return for '${inp.holding_name}' (${inp.ticker})`;
+              console.log('[Claude] 📊 YAHOO FINANCE FALLBACK triggered for:', {
+                holding: inp.holding_name,
+                ticker: inp.ticker,
+                timeframe: inp.timeframe_period
+              });
+              break;
             default:
               label = toolUse.name;
           }

@@ -46,16 +46,50 @@ When analysing individual holdings in the portfolio, classify each into one of t
    - Other investment types: Bonds, ETFs, debentures, fixed income securities, listed investment companies
    - Identifiable by: Words like "Bond", "Note", "Debenture", "ETF", "Fixed Income", "LIC"
    - Examples: "Commonwealth Bank Bonds", "Vanguard Australian Shares ETF (VAS)", "Australian Government Bonds"
+   - Examples of ETFs in this portfolio: "VanEck Glbl Lstd Priv Cred (Aud Hdgd)ETF" (ticker: LEND), "Vaneck Vectors Aus Equal Weight ETF" (ticker: MVW), "Vanguard Aus Corp Fixed Int Ind Fund ETF" (ticker: VACF)
    - For each security: Provide a brief factual description of the security type and characteristics
+   - CRITICAL: ETFs have tickers just like direct shares - extract them and use Yahoo Finance fallback for returns
 
 PERFORMANCE DATA EXTRACTION:
-- Extract the exact reporting timeframe text from the portfolio statement (for example: "1 July 2024 to 30 June 2025" or "for the period 01/07/2024 to 31/12/2024").
-- In markdown analysis, always state the exact timeframe wording from the document when discussing returns/performance. Do NOT reduce it to only a year unless the document itself only provides year-level data.
-- When stating any total return in markdown, use this exact pattern: "over the time period [exact timeframe from the portfolio statement]".
+**STEP 1 - EXTRACT REPORTING TIMEFRAME (CRITICAL FIRST STEP)**:
+- BEFORE analyzing individual holdings, you MUST identify the reporting date/timeframe from the portfolio statement
+- Two scenarios:
+  A) Performance Period: "1 Jul 2024 to 30 Jun 2025" → Use this exact period for Yahoo Finance
+  B) Point-in-time: "as at 24 February 2026" → Calculate 12-month lookback period automatically
+     * If statement shows "as at 24 Feb 2026", use period: "24 Feb 2025 to 24 Feb 2026"
+     * Format as: "[day] [month] [year-1] to [day] [month] [year]"
+- Store this timeframe - it will be used for ALL holdings
+
+**STEP 2 - EXTRACT HOLDING-SPECIFIC DATA**:
 - Extract historical performance data (annual returns) for each holding from the portfolio documents
-- Extract volatility data (standard deviation) for each holding if available in the documents
-- Present performance and volatility data year by year as found in the documents
-- If performance/volatility data is not available for a holding, omit those fields from the output
+- Extract volatility data (standard deviation) for each holding if available
+- Extract ticker symbols where present:
+  * Direct shares: Look for ticker codes (e.g., "CBA", "BHP", "ANZ")
+  * Securities/ETFs: Ticker may be in parentheses after name (e.g., "Vanguard Australian Shares ETF (VAS)") or listed separately
+  * Common ASX ETF tickers: VAS, VGS, LEND, MVW, VACF, IVV, IOZ, etc.
+- Present performance and volatility data year by year as found in documents
+
+**STEP 3 - YAHOO FINANCE FALLBACK FOR MISSING RETURNS (CRITICAL)**:
+For EVERY holding that lacks return data in the documents:
+1. Check if it has a ticker symbol
+   - Direct shares: Always have tickers (e.g., CBA, BHP, ANZ)
+   - Securities (ETFs, LICs): Usually have tickers (e.g., VAS, MVW, LEND, VACF)
+   - Managed funds: Typically DON'T have tickers
+2. If ticker exists AND you have a timeframe from Step 1:
+   - MUST call search_holding_return tool with:
+     * holding_name: The fund/company/security name
+     * ticker: Add .AX suffix for Australian stocks/ETFs (e.g., "CBA.AX", "BHP.AX", "LEND.AX", "MVW.AX")
+     * timeframe_period: From Step 1 (either the exact period from docs, OR the calculated 12-month lookback)
+   - This applies to BOTH direct-share AND security types (treat ETFs exactly like stocks for this purpose)
+3. Populate performanceTimeframe and totalReturnForTimeframe with the result
+4. For holdings without tickers (most managed funds), set performanceTimeframe but omit totalReturnForTimeframe
+
+**SPECIFIC EXAMPLES FOR THIS PORTFOLIO**:
+- "VanEck Glbl Lstd Priv Cred (Aud Hdgd)ETF" → ticker: LEND → Call search_holding_return("VanEck Glbl Lstd Priv Cred (Aud Hdgd)ETF", "LEND.AX", "24 Feb 2025 to 24 Feb 2026")
+- "Vaneck Vectors Aus Equal Weight ETF" → ticker: MVW → Call search_holding_return("Vaneck Vectors Aus Equal Weight ETF", "MVW.AX", "24 Feb 2025 to 24 Feb 2026")
+- "Vanguard Aus Corp Fixed Int Ind Fund ETF" → ticker: VACF → Call search_holding_return("Vanguard Aus Corp Fixed Int Ind Fund ETF", "VACF.AX", "24 Feb 2025 to 24 Feb 2026")
+
+**IMPORTANT**: In markdown, use pattern: "Total return over the time period [timeframe]"
 
 ASSET CLASS & PORTFOLIO RISK REQUIREMENTS:
 ${profile.includeRiskSummary ? `- Map every holding into the investor-profile asset class taxonomy: Alternatives, Australian Fixed Interest, Australian Property, Australian Shares, Domestic Cash, International Cash, International Fixed Interest, International Property, International Shares. If a holding spans multiple classes, assign the dominant exposure.
@@ -165,6 +199,16 @@ CRITICAL: You must respond with ONLY valid JSON in this EXACT format (no markdow
           {"year": 2024, "standardDeviation": 12.5},
           {"year": 2023, "standardDeviation": 14.2}
         ]
+      },
+      {
+        "name": "Vanguard Australian Shares ETF",
+        "type": "security",
+        "description": "Exchange-traded fund providing exposure to Australian shares via the ASX 300 index.",
+        "ticker": "VAS",
+        "currentValue": 75000,
+        "percentage": 15,
+        "performanceTimeframe": "1 Jul 2024 to 30 Jun 2025",
+        "totalReturnForTimeframe": 11.8
       }
     ],
     "portfolioRisk": {
@@ -218,6 +262,7 @@ CRITICAL: You must respond with ONLY valid JSON in this EXACT format (no markdow
 Instructions:
 - Extract portfolio value and asset allocation from documents
 - Determine current risk profile based on asset allocation
+- Extract ticker symbols for ALL holdings where available (direct shares and securities/ETFs especially)
 - Do NOT include fees or costs in the output
 - For riskComparison.alignment field, use ONLY these exact values based on risk level comparison:
   * "Aligned" - when currentRisk exactly matches targetRisk (e.g., Growth = Growth)
@@ -227,18 +272,20 @@ Instructions:
 - Use only asset classes present in the actual portfolio
 - Include holdingsPerformance array ONLY if fund commentary was requested (fundCommentary = yes)
 - For each holding: classify type, provide description, extract performance/volatility data from documents
-- For each holding where available, include 
-  - performanceTimeframe: exact timeframe text copied from the statement
-  - totalReturnForTimeframe: total return (%) for that exact timeframe
+- CRITICAL: For EVERY holding in holdingsPerformance array:
+  * performanceTimeframe: MUST be populated with the reporting timeframe extracted in Step 1 (e.g., "1 Jul 2024 to 30 Jun 2025")
+  * totalReturnForTimeframe: Populate from documents if available, OR use Yahoo Finance fallback (search_holding_return) if ticker exists
+  * If no ticker and no data in documents, omit totalReturnForTimeframe but ALWAYS include performanceTimeframe
 - In markdown narrative, when mentioning total return, always write it as: "Total return over the time period [exact timeframe from the statement]".
 - If performance or volatility data is not in documents, omit those arrays for that holding
-- If timeframe-based return is not available for a holding, omit performanceTimeframe and totalReturnForTimeframe for that holding.
 - Populate portfolioRisk ONLY when includeRiskSummary = yes AND you have sufficient data from documents and/or Brave search tool calls. Include sources for any external metrics. If insufficient data exists, omit portfolioRisk entirely.
 - For every portfolioRisk.assetClasses entry, always populate standardDeviation using the predicted volatility input for that asset class (expressed as decimal in JSON, rendered as % in UI/PDF).
 - If includeRiskSummary = no, do NOT include portfolioRisk in the JSON at all and do NOT call any asset class search tools.
 - Always use the Brave search tools \`search_asset_class_metrics\` and \`search_asset_class_correlation\` when the documents do not list the required volatility or correlation data — but ONLY when includeRiskSummary = yes.
 - Your ENTIRE response must be valid JSON with no leading/trailing commentary, code fences, or explanations. If you cannot complete the analysis, respond with {"error": "<brief factual reason>"} and nothing else.
 - Respond with pure JSON only (no markdown formatting around it)
+- CRITICAL: Do NOT add ANY text before the opening brace { or after the closing brace }. Start your response immediately with { and end with }
+- If you need to explain something about the analysis, put it in the markdown field within the JSON, NOT before or after the JSON
 </output_format>
 `;
 
