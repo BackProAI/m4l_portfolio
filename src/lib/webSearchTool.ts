@@ -538,7 +538,7 @@ export async function searchFundReturnMorningstar(
     
     // Navigate directly to performance page (modal will appear there)
     console.log(`[Morningstar] Navigating to performance page: ${performanceUrl}`);
-    await page.goto(performanceUrl, { waitUntil: 'networkidle2', timeout: 15000 });
+    await page.goto(performanceUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
     // Handle Morningstar's user type selection modal
     // Need to click "Individual Investor" THEN click "Confirm"
@@ -742,7 +742,7 @@ export async function searchFundReturnMorningstar(
 
     // Wait for performance table to load (check both class variants)
     try {
-      await page.waitForSelector('[class*="mds-table"]', { timeout: 10000 });
+      await page.waitForSelector('[class*="mds-table"]', { timeout: 20000 });
       console.log(`[Morningstar] Performance table loaded`);
     } catch (err) {
       console.log(`[Morningstar] Table timeout - checking what exists...`);

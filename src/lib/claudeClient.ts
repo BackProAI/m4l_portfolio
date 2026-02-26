@@ -276,7 +276,7 @@ export async function analysePortfolioWithTools({
         // Execute tools with controlled concurrency - critical for preventing timeouts
         // when many Morningstar scrapes are needed (e.g., 14 managed funds)
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
-        const CONCURRENCY = 3; // Run up to 3 browser instances simultaneously
+        const CONCURRENCY = 2; // Run up to 2 browser instances simultaneously (3 was too aggressive)
 
         // Helper to execute a batch of tools concurrently
         const executeBatch = async (batch: Anthropic.ToolUseBlock[]) => {
