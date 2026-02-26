@@ -343,7 +343,7 @@ export default function Home() {
               <CardTitle>Upload Portfolio Document</CardTitle>
               <CardDescription>
                 Upload your portfolio statement, fund report, or investment document 
-                (PDF, Word, or Excel file)
+                (PDF, Word, Excel, or CSV file)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

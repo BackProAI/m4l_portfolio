@@ -137,8 +137,24 @@ export async function parseExcel(file: File): Promise<ParsedFileResult> {
       fullText += csv + '\n';
     });
     
+    const trimmedText = fullText.trim();
+    
+    // Log parsing result for debugging
+    console.log('[Excel Parser] File parsed:', {
+      fileName: file.name,
+      sheets: workbook.SheetNames.length,
+      sheetNames: workbook.SheetNames,
+      contentLength: trimmedText.length,
+      isEmpty: trimmedText.length < 50
+    });
+    
+    // Warn if content seems too short
+    if (trimmedText.length < 50) {
+      console.warn('[Excel Parser] Warning: Very little content extracted from Excel file');
+    }
+    
     return {
-      text: fullText.trim(),
+      text: trimmedText,
       isScanned: false,
     };
   } catch (error) {
@@ -159,6 +175,7 @@ export async function parseFile(file: File, type: FileType): Promise<ParsedFileR
       return parseDocx(file);
     case 'xlsx':
     case 'xls':
+    case 'csv':
       return parseExcel(file);
     default:
       throw new Error(`Unsupported file type: ${type}`);
@@ -180,14 +197,14 @@ export function validateFile(file: File, maxSizeMB: number = 10): { valid: boole
   }
   
   // Check file type
-  const validExtensions = ['.pdf', '.docx', '.xlsx', '.xls'];
+  const validExtensions = ['.pdf', '.docx', '.xlsx', '.xls', '.csv'];
   const fileName = file.name.toLowerCase();
   const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
   
   if (!hasValidExtension) {
     return {
       valid: false,
-      error: 'File must be PDF, Word (.docx), or Excel (.xlsx/.xls)',
+      error: 'File must be PDF, Word (.docx), Excel (.xlsx/.xls), or CSV',
     };
   }
   

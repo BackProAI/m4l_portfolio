@@ -39,7 +39,7 @@ export interface InvestorProfile {
 // File Upload Types
 // ============================================================================
 
-export type FileType = 'pdf' | 'docx' | 'xlsx' | 'xls';
+export type FileType = 'pdf' | 'docx' | 'xlsx' | 'xls' | 'csv';
 
 export type UploadStatus = 'pending' | 'processing' | 'completed' | 'error';
 

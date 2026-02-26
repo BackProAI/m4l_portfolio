@@ -47,7 +47,7 @@ const AnalyseRequestSchema = z.object({
     z.object({
       fileName: z.string(),
       content: z.string(),
-      type: z.enum(['pdf', 'docx', 'xlsx', 'xls']),
+      type: z.enum(['pdf', 'docx', 'xlsx', 'xls', 'csv']),
       // Optional fields for scanned PDF OCR support
       isScanned: z.boolean().optional(),
       base64Data: z.string().optional(),
@@ -151,7 +151,23 @@ export async function POST(request: NextRequest) {
           const lastBrace = jsonStr.lastIndexOf('}');
           
           if (firstBrace === -1 || lastBrace === -1) {
-            throw new Error('No JSON object found in response');
+            // Log Claude's actual response for debugging
+            console.error('[API] Claude returned non-JSON response:', {
+              contentLength: jsonStr.length,
+              contentPreview: jsonStr.substring(0, 500),
+              model: result.model,
+              usage: result.usage
+            });
+            
+            // Check if Claude returned a plain text error/explanation
+            if (jsonStr.toLowerCase().includes('cannot') || 
+                jsonStr.toLowerCase().includes('unable') || 
+                jsonStr.toLowerCase().includes('error') ||
+                jsonStr.toLowerCase().includes('sorry')) {
+              throw new Error(`Analysis failed: ${jsonStr.substring(0, 300).trim()}...`);
+            }
+            
+            throw new Error('No JSON object found in response. The portfolio data may be empty, unreadable, or in an unsupported format. Please ensure your file contains a clear portfolio holdings table.');
           }
           
           // Extract only the JSON portion

@@ -28,6 +28,7 @@ const ACCEPTED_TYPES = {
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
   'application/vnd.ms-excel': ['.xls'],
+  'text/csv': ['.csv'],
 };
 
 export function FileUploadZone({
@@ -58,6 +59,8 @@ export function FileUploadZone({
         return 'xlsx' as FileType;
       case 'xls':
         return 'xls' as FileType;
+      case 'csv':
+        return 'csv' as FileType;
       default:
         return null;
     }
@@ -139,6 +142,7 @@ export function FileUploadZone({
         return '📝';
       case 'xlsx':
       case 'xls':
+      case 'csv':
         return '📊';
       default:
         return '📎';
@@ -227,6 +231,9 @@ export function FileUploadZone({
                 </Badge>
                 <Badge variant="default" size="sm">
                   Excel (.xlsx)
+                </Badge>
+                <Badge variant="default" size="sm">
+                  CSV
                 </Badge>
               </div>
 
