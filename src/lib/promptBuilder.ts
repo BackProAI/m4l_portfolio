@@ -69,20 +69,34 @@ PERFORMANCE DATA EXTRACTION:
   * Common ASX ETF tickers: VAS, VGS, LEND, MVW, VACF, IVV, IOZ, etc.
 - Present performance and volatility data year by year as found in documents
 
-**STEP 3 - YAHOO FINANCE FALLBACK FOR MISSING RETURNS (CRITICAL)**:
+**STEP 3 - FALLBACK FOR MISSING RETURNS (CRITICAL)**:
 For EVERY holding that lacks return data in the documents:
 1. Check if it has a ticker symbol
    - Direct shares: Always have tickers (e.g., CBA, BHP, ANZ)
    - Securities (ETFs, LICs): Usually have tickers (e.g., VAS, MVW, LEND, VACF)
    - Managed funds: Typically DON'T have tickers
-2. If ticker exists AND you have a timeframe from Step 1:
+2. YAHOO FINANCE FALLBACK (for stocks/ETFs with tickers):
+   - If ticker exists AND you have a timeframe from Step 1:
    - MUST call search_holding_return tool with:
      * holding_name: The fund/company/security name
      * ticker: Add .AX suffix for Australian stocks/ETFs (e.g., "CBA.AX", "BHP.AX", "LEND.AX", "MVW.AX")
      * timeframe_period: From Step 1 (either the exact period from docs, OR the calculated 12-month lookback)
    - This applies to BOTH direct-share AND security types (treat ETFs exactly like stocks for this purpose)
-3. Populate performanceTimeframe and totalReturnForTimeframe with the result
-4. For holdings without tickers (most managed funds), set performanceTimeframe but omit totalReturnForTimeframe
+   - Populate performanceTimeframe and totalReturnForTimeframe with the result
+3. MORNINGSTAR FALLBACK (for managed funds without tickers):
+   - If holding is a MANAGED FUND with NO ticker symbol AND you have a timeframe from Step 1:
+   - MUST call search_fund_return_morningstar tool with:
+     * fund_name: The full fund name (e.g., "Metrics Direct Income Fund")
+     * fund_manager: The fund manager name (e.g., "Metrics Credit Partners")
+     * timeframe_period: From Step 1 (exact period or calculated lookback)
+   - CRITICAL: Extract BOTH values from the tool response:
+     * totalReturnForTimeframe: Parse the return percentage from the response
+     * performanceTimeframe: Parse the ACTUAL timeframe from the response (pattern: "for the period X to Y")
+     * Example response: "Fund: 1-year Investor Return is 3.52% for the period 1 Feb 2025 to 31 Jan 2026"
+     * Extract: totalReturnForTimeframe = 3.52, performanceTimeframe = "1 Feb 2025 to 31 Jan 2026"
+   - DO NOT use the portfolio's timeframe for Morningstar data - use the actual period returned by Morningstar
+   - Note: This tool is slower (3-5 seconds per fund) but provides data for managed funds not on Yahoo Finance
+4. If no return data can be found via either fallback, set performanceTimeframe but omit totalReturnForTimeframe
 
 **SPECIFIC EXAMPLES FOR THIS PORTFOLIO**:
 - "VanEck Glbl Lstd Priv Cred (Aud Hdgd)ETF" → ticker: LEND → Call search_holding_return("VanEck Glbl Lstd Priv Cred (Aud Hdgd)ETF", "LEND.AX", "24 Feb 2025 to 24 Feb 2026")
@@ -273,9 +287,16 @@ Instructions:
 - Include holdingsPerformance array ONLY if fund commentary was requested (fundCommentary = yes)
 - For each holding: classify type, provide description, extract performance/volatility data from documents
 - CRITICAL: For EVERY holding in holdingsPerformance array:
-  * performanceTimeframe: MUST be populated with the reporting timeframe extracted in Step 1 (e.g., "1 Jul 2024 to 30 Jun 2025")
-  * totalReturnForTimeframe: Populate from documents if available, OR use Yahoo Finance fallback (search_holding_return) if ticker exists
-  * If no ticker and no data in documents, omit totalReturnForTimeframe but ALWAYS include performanceTimeframe
+  * performanceTimeframe: Populate based on source:
+    - From portfolio documents → use the reporting timeframe extracted in Step 1 (e.g., "1 Jul 2024 to 30 Jun 2025")
+    - From Yahoo Finance fallback → use the portfolio's timeframe (Step 1) since Yahoo returns data for exact dates requested
+    - From Morningstar fallback → EXTRACT the actual timeframe from tool response (pattern: "for the period X to Y")
+    - Example: If Morningstar returns "for the period 1 Feb 2025 to 31 Jan 2026", use "1 Feb 2025 to 31 Jan 2026" as performanceTimeframe
+  * totalReturnForTimeframe: Populate from documents if available, OR use fallback tools per Step 3:
+    - If holding has ticker → call search_holding_return (Yahoo Finance)
+    - If holding is managed fund WITHOUT ticker → call search_fund_return_morningstar (Morningstar)
+    - If neither tool can provide data, omit totalReturnForTimeframe
+  * ALWAYS include performanceTimeframe even if totalReturnForTimeframe is omitted
 - In markdown narrative, when mentioning total return, always write it as: "Total return over the time period [exact timeframe from the statement]".
 - If performance or volatility data is not in documents, omit those arrays for that holding
 - Populate portfolioRisk ONLY when includeRiskSummary = yes AND you have sufficient data from documents and/or Brave search tool calls. Include sources for any external metrics. If insufficient data exists, omit portfolioRisk entirely.

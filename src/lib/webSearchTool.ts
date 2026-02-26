@@ -3,6 +3,7 @@
 // ============================================================================
 
 import YahooFinanceClass from 'yahoo-finance2';
+import puppeteer from 'puppeteer';
 import { getAssetClassMetrics, getCorrelation, formatPercent } from './assetClassData';
 
 // Instantiate Yahoo Finance (v3 API requires instantiation)
@@ -428,6 +429,426 @@ export async function searchHoldingReturn(
   }
 }
 
+/**
+ * Search for managed fund return data using Morningstar website
+ * FALLBACK ONLY - Use this when return data is not available for managed funds
+ * Uses Brave Search API to find fund page, then Puppeteer to scrape performance data
+ * 
+ * @param fundName - Name of the fund (e.g., "Antipodes China Fund")
+ * @param fundManager - Fund management company (e.g., "Antipodes Partners")
+ * @param timeframePeriod - Period string like "1 Jul 2024 to 30 Jun 2025"
+ * @returns Object with return data and sources
+ */
+export async function searchFundReturnMorningstar(
+  fundName: string,
+  fundManager: string,
+  timeframePeriod: string
+): Promise<SearchResult> {
+  let browser;
+  try {
+    console.log(`[Morningstar] Fetching return for ${fundName} (${fundManager})`);
+
+    // Step 1: Use Brave Search to find the Morningstar fund page
+    if (!process.env.BRAVE_SEARCH_API_KEY) {
+      console.warn('Brave Search API key not configured');
+      return {
+        description: `${fundName} - Morningstar data not available (API key not configured)`,
+        sources: [],
+      };
+    }
+
+    const searchQuery = `${fundName} ${fundManager} site:morningstar.com.au`;
+    const searchResponse = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY,
+        },
+      }
+    );
+
+    if (!searchResponse.ok) {
+      throw new Error(`Brave Search API error: ${searchResponse.status}`);
+    }
+
+    const searchData = await searchResponse.json();
+    const results = searchData.web?.results || [];
+
+    // Step 2: Extract fund ID from Morningstar URL
+    let fundId: string | null = null;
+    let foundUrl: string | null = null;
+
+    for (const result of results) {
+      const url = result.url || '';
+      // Look for /investments/security/fund/{id} pattern
+      const fundIdMatch = url.match(/\/investments\/security\/fund\/(\d+)/);
+      if (fundIdMatch) {
+        fundId = fundIdMatch[1];
+        foundUrl = url;
+        break;
+      }
+    }
+
+    if (!fundId) {
+      return {
+        description: `No Morningstar listing found for ${fundName} (${fundManager}). Fund may not be available on Morningstar.com.au.`,
+        sources: [],
+      };
+    }
+
+    console.log(`[Morningstar] Found fund ID: ${fundId}`);
+
+    // Step 3: Navigate to performance page and scrape data
+    const performanceUrl = `https://www.morningstar.com.au/investments/security/fund/${fundId}/performance`;
+
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+
+    const page = await browser.newPage();
+    
+    // Set desktop viewport (Morningstar likely serves different HTML for mobile vs desktop)
+    await page.setViewport({ width: 1920, height: 1080 });
+    
+    // Navigate directly to performance page (modal will appear there)
+    console.log(`[Morningstar] Navigating to performance page: ${performanceUrl}`);
+    await page.goto(performanceUrl, { waitUntil: 'networkidle2', timeout: 15000 });
+
+    // Handle Morningstar's user type selection modal
+    // Need to click "Individual Investor" THEN click "Confirm"
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Give modal time to appear
+      
+      // Step 1: Click "Individual Investor" option
+      const investorClicked = await page.evaluate(() => {
+        const headings = Array.from(document.querySelectorAll('h5, h4, h3'));
+        for (const heading of headings) {
+          if (heading.textContent?.includes('Individual Investor')) {
+            const clickTarget = heading.closest('button') || heading.closest('div[role="button"]') || heading;
+            (clickTarget as HTMLElement).click();
+            return true;
+          }
+        }
+        return false;
+      });
+      
+      if (investorClicked) {
+        console.log(`[Morningstar] Clicked Individual Investor option`);
+        await new Promise(resolve => setTimeout(resolve, 500)); // Brief wait before confirm
+        
+        // Step 2: Click "Confirm" button
+        const confirmClicked = await page.evaluate(() => {
+          const allButtons = Array.from(document.querySelectorAll('button'));
+          const confirmButton = allButtons.find(btn => btn.textContent?.trim() === 'Confirm');
+          if (confirmButton) {
+            (confirmButton as HTMLButtonElement).click();
+            return true;
+          }
+          return false;
+        });
+        
+        if (confirmClicked) {
+          console.log(`[Morningstar] Clicked Confirm button`);
+          await new Promise(resolve => setTimeout(resolve, 4000)); // Wait for page to reload after confirmation
+          
+          // Verify we're still on the performance page
+          const currentUrl = page.url();
+          console.log(`[Morningstar] Current URL after confirm: ${currentUrl}`);
+          
+          if (!currentUrl.includes('/performance')) {
+            console.log(`[Morningstar] ERROR: Page redirected away from performance after modal! URL: ${currentUrl}`);
+            // Try clicking Performance tab on the page
+            const perfTabClicked = await page.evaluate(() => {
+              const links = Array.from(document.querySelectorAll('a[href*="/performance"]'));
+              if (links.length > 0) {
+                (links[0] as HTMLAnchorElement).click();
+                return true;
+              }
+              return false;
+            });
+            
+            if (perfTabClicked) {
+              console.log(`[Morningstar] Clicked Performance tab link`);
+              await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+          }
+        } else {
+          console.log(`[Morningstar] Warning: Could not find Confirm button`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      } else {
+        console.log(`[Morningstar] No Individual Investor option found`);
+        
+        // Check if we're on the performance page anyway
+        const currentUrl = page.url();
+        console.log(`[Morningstar] Current URL (no modal): ${currentUrl}`);
+        
+        if (!currentUrl.includes('/performance')) {
+          console.log(`[Morningstar] Not on performance page, trying to click Performance tab`);
+          const perfTabClicked = await page.evaluate(() => {
+            const links = Array.from(document.querySelectorAll('a[href*="/performance"]'));
+            if (links.length > 0) {
+              (links[0] as HTMLAnchorElement).click();
+              return true;
+            }
+            return false;
+          });
+          
+          if (perfTabClicked) {
+            console.log(`[Morningstar] Clicked Performance tab link`);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`[Morningstar] Error handling modal:`, e);
+    }
+
+    // DIAGNOSTIC: Log what content exists on the page
+    const diagnostics = await page.evaluate(() => {
+      const allButtons = Array.from(document.querySelectorAll('button'));
+      const mcaButtons = Array.from(document.querySelectorAll('button.mds-button__mca-dfd'));
+      const salButtons = Array.from(document.querySelectorAll('button.mds-button__sal'));
+      
+      return {
+        url: window.location.href,
+        totalButtons: allButtons.length,
+        mcaButtonCount: mcaButtons.length,
+        salButtonCount: salButtons.length,
+        hasPerformanceContent: !!document.querySelector('.segment-band__tabs'),
+        hasAnyTable: !!document.querySelector('table'),
+        hasMdsTable: !!document.querySelector('.mds-table__sal') || !!document.querySelector('.mds-table__mca-dfd'),
+        bodyClasses: document.body.className,
+        buttonSample: allButtons.slice(0, 3).map(btn => ({
+          text: btn.textContent?.trim().substring(0, 50),
+          classes: btn.className
+        }))
+      };
+    });
+    console.log(`[Morningstar] PAGE STATE:`, JSON.stringify(diagnostics, null, 2));
+
+    // Switch from "Annual" to "Trailing" returns view
+    try {
+      await new Promise(resolve => setTimeout(resolve, 500)); // Additional wait for page elements to be ready
+      
+      // First, try to find and click a direct "Trailing" button
+      const directClick = await page.evaluate(() => {
+        const allButtons = Array.from(document.querySelectorAll('button'));
+        const trailingButton = allButtons.find(btn => btn.textContent?.includes('Trailing'));
+        
+        if (trailingButton) {
+          (trailingButton as HTMLButtonElement).click();
+          return true;
+        }
+        return false;
+      });
+      
+      if (directClick) {
+        console.log(`[Morningstar] Clicked Trailing button directly`);
+        await new Promise(resolve => setTimeout(resolve, 2500));
+      } else {
+        // Try dropdown approach: click "Annual" dropdown first
+        const dropdownOpened = await page.evaluate(() => {
+          // Look for button with Morningstar button classes (either __sal or __mca-dfd suffix) that contains "Annual"
+          const buttons = Array.from(document.querySelectorAll('button[class*="mds-button"]'));
+          for (const button of buttons) {
+            const buttonText = button.textContent?.trim() || '';
+            // Check if button itself or any span contains "Annual"
+            if (buttonText.includes('Annual')) {
+              const spans = button.querySelectorAll('span');
+              for (const span of spans) {
+                if (span.textContent?.trim() === 'Annual') {
+                  (button as HTMLButtonElement).click();
+                  console.log('[Morningstar] Found and clicked Annual button:', button.className);
+                  return true;
+                }
+              }
+            }
+          }
+          return false;
+        });
+        
+        if (dropdownOpened) {
+          console.log(`[Morningstar] Opened Annual dropdown`);
+          await new Promise(resolve => setTimeout(resolve, 800)); // Wait for popover menu to appear
+          
+          // Now click "Trailing" in the popover menu
+          const menuItemClicked = await page.evaluate(() => {
+            // Find visible popover (check both __sal and __mca-dfd variants)
+            const popovers = Array.from(document.querySelectorAll('[class*="mds-popover"]'));
+            for (const popover of popovers) {
+              // Skip hidden popovers (check for any "hidden" class variant)
+              if (popover.className.includes('hidden')) continue;
+              
+              // Find list items within this popover
+              const listItems = popover.querySelectorAll('[class*="mds-list-group-item"]');
+              for (const item of listItems) {
+                const textSpan = item.querySelector('[class*="mds-list-group-item__text"]');
+                if (textSpan?.textContent?.trim() === 'Trailing') {
+                  // Click the link element
+                  const link = item.querySelector('[class*="mds-list-group__link"]') as HTMLElement;
+                  if (link) {
+                    link.click();
+                    return true;
+                  }
+                  // Fallback: click the item itself
+                  (item as HTMLElement).click();
+                  return true;
+                }
+              }
+            }
+            return false;
+          });
+          
+          if (menuItemClicked) {
+            console.log(`[Morningstar] Clicked Trailing from dropdown menu`);
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for table to reload
+          } else {
+            console.log(`[Morningstar] Warning: Could not find Trailing in dropdown menu`);
+          }
+        } else {
+          console.log(`[Morningstar] Warning: Could not find dropdown button`);
+        }
+      }
+    } catch (e) {
+      console.log(`[Morningstar] Error switching to Trailing view:`, e);
+    }
+
+    // Wait for performance table to load (check both class variants)
+    try {
+      await page.waitForSelector('[class*="mds-table"]', { timeout: 10000 });
+      console.log(`[Morningstar] Performance table loaded`);
+    } catch (err) {
+      console.log(`[Morningstar] Table timeout - checking what exists...`);
+      const pageState = await page.evaluate(() => {
+        return {
+          hasTables: document.querySelectorAll('table').length,
+          hasMdsTables: document.querySelectorAll('[class*="mds-table"]').length,
+          bodyText: document.body.innerText.substring(0, 500)
+        };
+      });
+      console.log(`[Morningstar] Page state at timeout:`, JSON.stringify(pageState, null, 2));
+      throw err;
+    }
+
+    // Extract the "as of" date from Morningstar to get the actual reporting period
+    const asOfDate = await page.evaluate(() => {
+      const dateSpan = document.querySelector('span.header-date');
+      if (dateSpan) {
+        const text = dateSpan.textContent?.trim();
+        // Text format: "as of MM/DD/YYYY"
+        const dateMatch = text?.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (dateMatch) {
+          return dateMatch[0]; // Return "MM/DD/YYYY"
+        }
+      }
+      return null;
+    });
+    
+    let actualTimeframe = timeframePeriod; // Default to portfolio's timeframe
+    
+    if (asOfDate) {
+      console.log(`[Morningstar] Found "as of" date: ${asOfDate}`);
+      
+      // Parse MM/DD/YYYY format
+      const [month, day, year] = asOfDate.split('/').map(Number);
+      const endDate = new Date(year, month - 1, day);
+      
+      // Calculate start date (1 year before)
+      const startDate = new Date(endDate);
+      startDate.setFullYear(startDate.getFullYear() - 1);
+      
+      // Format as "DD MMM YYYY to DD MMM YYYY"
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const formatDate = (date: Date) => {
+        return `${date.getDate()} ${monthNames[date.getMonth()]} ${date.getFullYear()}`;
+      };
+      
+      actualTimeframe = `${formatDate(startDate)} to ${formatDate(endDate)}`;
+      console.log(`[Morningstar] Calculated actual 1-year period: ${actualTimeframe}`);
+    } else {
+      console.log(`[Morningstar] No "as of" date found, using portfolio timeframe: ${timeframePeriod}`);
+    }
+
+    // Extract 1-year return from "Investor Return %" row
+    const investorReturn = await page.evaluate(() => {
+      const tables = document.querySelectorAll('[class*="mds-table"]');
+      console.log(`[Morningstar Extract] Found ${tables.length} tables`);
+
+      for (const table of tables) {
+        const rows = table.querySelectorAll('tbody tr');
+        console.log(`[Morningstar Extract] Table has ${rows.length} rows`);
+
+        for (const row of rows) {
+          const headerCell = row.querySelector('th');
+          const headerText = headerCell?.textContent?.trim();
+          
+          if (headerText?.includes('Investor Return')) {
+            console.log(`[Morningstar Extract] Found "Investor Return" row: ${headerText}`);
+            
+            // Get the 1-Year column (4th data cell, index 3)
+            const cells = row.querySelectorAll('td');
+            console.log(`[Morningstar Extract] Row has ${cells.length} cells`);
+            
+            if (cells.length >= 4) {
+              const oneYearValue = cells[3].textContent?.trim();
+              console.log(`[Morningstar Extract] Extracted 1-year value: ${oneYearValue}`);
+              return oneYearValue;
+            } else {
+              console.log(`[Morningstar Extract] Not enough cells in row`);
+            }
+          }
+        }
+      }
+      console.log(`[Morningstar Extract] No "Investor Return" row found`);
+      return null;
+    });
+    
+    console.log(`[Morningstar] Extracted return value: ${investorReturn}`);
+
+    await browser.close();
+
+    if (!investorReturn || investorReturn === '—' || investorReturn === '') {
+      console.log(`[Morningstar] No return data found in table`);
+      return {
+        description: `No 1-year return data available for ${fundName} on Morningstar.`,
+        sources: [`Morningstar - Fund ID ${fundId}`],
+      };
+    }
+
+    // Parse the return value
+    const returnValue = parseFloat(investorReturn);
+    if (isNaN(returnValue)) {
+      console.log(`[Morningstar] Could not parse return value: ${investorReturn}`);
+      return {
+        description: `Unable to parse return data for ${fundName}. Found value: ${investorReturn}`,
+        sources: [`Morningstar - Fund ID ${fundId}`],
+      };
+    }
+
+    console.log(`[Morningstar] ✅ Successfully extracted return: ${returnValue.toFixed(2)}% for period: ${actualTimeframe}`);
+
+    const description = `${fundName} (${fundManager}): 1-year Investor Return is ${returnValue.toFixed(2)}% for the period ${actualTimeframe}. Data retrieved from Morningstar performance table.`;
+
+    return {
+      description,
+      sources: [`Morningstar - ${performanceUrl}`],
+    };
+  } catch (error) {
+    if (browser) {
+      await browser.close();
+    }
+    console.error(`[Morningstar] Error fetching return for ${fundName}:`, error);
+    return {
+      description: `Failed to retrieve Morningstar data for ${fundName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      sources: [],
+    };
+  }
+}
+
 async function performGeneralSearch(query: string, fallbackDescription: string): Promise<SearchResult> {
   try {
     if (!process.env.BRAVE_SEARCH_API_KEY) {
@@ -595,6 +1016,28 @@ export const SEARCH_TOOLS = [
       },
       required: ["holding_name", "ticker", "timeframe_period"],
     },
+  },
+  {
+    name: "search_fund_return_morningstar",
+    description: "FALLBACK TOOL for managed funds - Fetch 1-year return from Morningstar.com.au when return data is NOT available in portfolio documents and the fund has no ticker symbol for Yahoo Finance. Use ONLY for managed funds without stock tickers. This tool is slower (3-5 seconds per fund) as it uses web scraping.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fund_name: {
+          type: "string",
+          description: "Full managed fund name (e.g., 'Antipodes China Fund', 'Metrics Direct Income Fund')",
+        },
+        fund_manager: {
+          type: "string",
+          description: "Fund management company name (e.g., 'Antipodes Partners', 'Metrics Credit Partners')",
+        },
+        timeframe_period: {
+          type: "string",
+          description: "Exact time period string from the portfolio statement (e.g., '1 Jul 2024 to 30 Jun 2025'). Used for context but Morningstar returns most recent 1-year data.",
+        },
+      },
+      required: ["fund_name", "fund_manager", "timeframe_period"],
+    },
   }
 ] as const;
 
@@ -650,6 +1093,14 @@ export async function executeSearchTool(
         result = await searchHoldingReturn(
           toolInput.holding_name,
           toolInput.ticker,
+          toolInput.timeframe_period
+        );
+        return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
+      
+      case 'search_fund_return_morningstar':
+        result = await searchFundReturnMorningstar(
+          toolInput.fund_name,
+          toolInput.fund_manager,
           toolInput.timeframe_period
         );
         return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
