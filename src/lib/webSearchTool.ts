@@ -3,7 +3,8 @@
 // ============================================================================
 
 import YahooFinanceClass from 'yahoo-finance2';
-import puppeteer from 'puppeteer';
+import puppeteerCore from 'puppeteer-core';
+import chromium from '@sparticuz/chromium-min';
 import { getAssetClassMetrics, getCorrelation, formatPercent } from './assetClassData';
 
 // Instantiate Yahoo Finance (v3 API requires instantiation)
@@ -439,6 +440,28 @@ export async function searchHoldingReturn(
  * @param timeframePeriod - Period string like "1 Jul 2024 to 30 Jun 2025"
  * @returns Object with return data and sources
  */
+async function launchBrowser() {
+  const isServerless = !!process.env.VERCEL || process.env.NODE_ENV === 'production';
+
+  if (isServerless) {
+    const executablePath = await chromium.executablePath;
+
+    return puppeteerCore.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath,
+      headless: chromium.headless,
+    });
+  }
+
+  // Local development: use system Chrome
+  return puppeteerCore.launch({
+    headless: true,
+    channel: 'chrome', // Use system-installed Chrome
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+}
+
 export async function searchFundReturnMorningstar(
   fundName: string,
   fundManager: string,
@@ -503,10 +526,7 @@ export async function searchFundReturnMorningstar(
     // Step 3: Navigate to performance page and scrape data
     const performanceUrl = `https://www.morningstar.com.au/investments/security/fund/${fundId}/performance`;
 
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    browser = await launchBrowser();
 
     const page = await browser.newPage();
     
