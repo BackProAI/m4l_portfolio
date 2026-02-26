@@ -273,62 +273,89 @@ export async function analysePortfolioWithTools({
           content: response.content,
         });
 
-        // Execute tools one at a time, emitting a progress label before each
+        // Execute tools with controlled concurrency - critical for preventing timeouts
+        // when many Morningstar scrapes are needed (e.g., 14 managed funds)
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
+        const CONCURRENCY = 3; // Run up to 3 browser instances simultaneously
 
-        for (let i = 0; i < toolUseBlocks.length; i++) {
-          const toolUse = toolUseBlocks[i];
-          const inp = toolUse.input as Record<string, any>;
+        // Helper to execute a batch of tools concurrently
+        const executeBatch = async (batch: Anthropic.ToolUseBlock[]) => {
+          return Promise.all(
+            batch.map(async (toolUse) => {
+              const inp = toolUse.input as Record<string, any>;
 
-          // Build a human-readable label for this single tool call
-          let label: string;
-          switch (toolUse.name) {
-            case 'search_fund_description':
-              label = `Searching for '${inp.fund_name ?? inp.fundName ?? 'fund'}'`;
-              break;
-            case 'search_company_description':
-              label = `Searching for '${inp.company_name ?? inp.companyName ?? 'company'}'`;
-              break;
-            case 'search_asset_class_metrics': {
-              const metric = inp.metric
-                ? (inp.metric as string).charAt(0).toUpperCase() + (inp.metric as string).slice(1)
-                : 'Metrics';
-              label = `Searching ${metric} for '${inp.asset_class ?? inp.assetClass ?? 'asset class'}'`;
-              break;
-            }
-            case 'search_asset_class_correlation':
-              label = `Searching correlation for '${inp.asset_class_a}' and '${inp.asset_class_b}'`;
-              break;
-            case 'search_holding_return':
-              label = `Fetching return for '${inp.holding_name}' (${inp.ticker})`;
-              console.log('[Claude] 📊 YAHOO FINANCE FALLBACK triggered for:', {
-                holding: inp.holding_name,
-                ticker: inp.ticker,
-                timeframe: inp.timeframe_period
+              // Build a human-readable label for this tool call
+              let label: string;
+              switch (toolUse.name) {
+                case 'search_fund_description':
+                  label = `Searching for '${inp.fund_name ?? inp.fundName ?? 'fund'}'`;
+                  break;
+                case 'search_company_description':
+                  label = `Searching for '${inp.company_name ?? inp.companyName ?? 'company'}'`;
+                  break;
+                case 'search_asset_class_metrics': {
+                  const metric = inp.metric
+                    ? (inp.metric as string).charAt(0).toUpperCase() + (inp.metric as string).slice(1)
+                    : 'Metrics';
+                  label = `Searching ${metric} for '${inp.asset_class ?? inp.assetClass ?? 'asset class'}'`;
+                  break;
+                }
+                case 'search_asset_class_correlation':
+                  label = `Searching correlation for '${inp.asset_class_a}' and '${inp.asset_class_b}'`;
+                  break;
+                case 'search_holding_return':
+                  label = `Fetching return for '${inp.holding_name}' (${inp.ticker})`;
+                  console.log('[Claude] 📊 YAHOO FINANCE FALLBACK triggered for:', {
+                    holding: inp.holding_name,
+                    ticker: inp.ticker,
+                    timeframe: inp.timeframe_period
+                  });
+                  break;
+                case 'search_fund_return_morningstar':
+                  label = `Fetching Morningstar data for '${inp.fund_name}'`;
+                  break;
+                default:
+                  label = toolUse.name;
+              }
+
+              // Emit progress for this tool
+              toolsExecutedCount++;
+              const pct = Math.round((toolsExecutedCount / (toolsExecutedCount + PROGRESS_BUFFER)) * PROGRESS_CAP);
+              onProgress?.(pct, 100, label);
+
+              console.log(`Executing tool: ${toolUse.name} with input:`, toolUse.input);
+
+              // Execute tool with timeout protection
+              const TOOL_TIMEOUT_MS = 60000; // 60 seconds per tool
+              const timeoutPromise = new Promise<string>((_, reject) => {
+                setTimeout(() => reject(new Error(`Tool execution timeout after ${TOOL_TIMEOUT_MS / 1000}s`)), TOOL_TIMEOUT_MS);
               });
-              break;
-            default:
-              label = toolUse.name;
-          }
 
-          // Emit progress for this individual tool before executing it
-          toolsExecutedCount++;
-          // step / (step + BUFFER) approaches 100% asymptotically, capped at PROGRESS_CAP
-          const pct = Math.round((toolsExecutedCount / (toolsExecutedCount + PROGRESS_BUFFER)) * PROGRESS_CAP);
-          onProgress?.(pct, 100, label);
+              let result: string;
+              try {
+                result = await Promise.race([
+                  executeSearchTool(toolUse.name, toolUse.input as Record<string, any>),
+                  timeoutPromise
+                ]);
+              } catch (error) {
+                console.error(`Tool ${toolUse.name} failed:`, error);
+                result = `Tool execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+              }
 
-          console.log(`Executing tool: ${toolUse.name} with input:`, toolUse.input);
-
-          const result = await executeSearchTool(
-            toolUse.name,
-            toolUse.input as Record<string, any>
+              return {
+                type: 'tool_result' as const,
+                tool_use_id: toolUse.id,
+                content: result,
+              };
+            })
           );
+        };
 
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
-            content: result,
-          });
+        // Process tools in batches of CONCURRENCY
+        for (let i = 0; i < toolUseBlocks.length; i += CONCURRENCY) {
+          const batch = toolUseBlocks.slice(i, i + CONCURRENCY);
+          const batchResults = await executeBatch(batch);
+          toolResults.push(...batchResults);
         }
 
         // Add tool results to message history

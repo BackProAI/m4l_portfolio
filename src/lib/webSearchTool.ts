@@ -832,7 +832,25 @@ export async function searchFundReturnMorningstar(
     
     console.log(`[Morningstar] Extracted return value: ${investorReturn}`);
 
-    await browser.close();
+    // Close browser with timeout protection
+    try {
+      const pages = await browser.pages();
+      await Promise.all(pages.map(p => p.close().catch(() => {})));
+      await Promise.race([
+        browser.close(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Browser close timeout')), 5000))
+      ]);
+      console.log(`[Morningstar] Browser closed successfully`);
+    } catch (e) {
+      console.warn(`[Morningstar] Browser close warning:`, e);
+      // Force kill if available
+      try {
+        const browserProcess = browser.process();
+        if (browserProcess) {
+          browserProcess.kill('SIGKILL');
+        }
+      } catch {}
+    }
 
     if (!investorReturn || investorReturn === '—' || investorReturn === '') {
       console.log(`[Morningstar] No return data found in table`);
@@ -861,8 +879,25 @@ export async function searchFundReturnMorningstar(
       sources: [`Morningstar - ${performanceUrl}`],
     };
   } catch (error) {
+    // Robust browser cleanup with timeout
     if (browser) {
-      await browser.close();
+      try {
+        const pages = await browser.pages();
+        await Promise.all(pages.map(p => p.close().catch(() => {})));
+        await Promise.race([
+          browser.close(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Browser close timeout')), 5000))
+        ]);
+      } catch (e) {
+        console.warn(`[Morningstar] Browser cleanup error:`, e);
+        // Force kill if available
+        try {
+          const browserProcess = browser.process();
+          if (browserProcess) {
+            browserProcess.kill('SIGKILL');
+          }
+        } catch {}
+      }
     }
     console.error(`[Morningstar] Error fetching return for ${fundName}:`, error);
     return {
