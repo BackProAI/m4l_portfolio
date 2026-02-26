@@ -444,7 +444,10 @@ async function launchBrowser() {
   const isServerless = !!process.env.VERCEL || process.env.NODE_ENV === 'production';
 
   if (isServerless) {
-    const executablePath = await chromium.executablePath;
+    // Download chromium binary from GitHub releases at runtime (cached in /tmp/chromium)
+    const executablePath = await chromium.executablePath(
+      'https://github.com/Sparticuz/chromium/releases/download/v119.0.2/chromium-v119.0.2-pack.tar'
+    );
 
     return puppeteerCore.launch({
       args: chromium.args,

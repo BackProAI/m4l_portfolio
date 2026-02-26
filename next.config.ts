@@ -4,8 +4,8 @@ const nextConfig: NextConfig = {
   // Turbopack configuration for Next.js 16+
   turbopack: {},
   
-  // Mark yahoo-finance2 as external to avoid bundling test files
-  serverExternalPackages: ['yahoo-finance2'],
+  // Mark yahoo-finance2 and chromium as external to avoid bundling test files
+  serverExternalPackages: ['yahoo-finance2', '@sparticuz/chromium-min'],
   
   // Webpack fallback for when using --webpack flag
   webpack: (config, { isServer }) => {
