@@ -140,6 +140,7 @@ export async function POST(request: NextRequest) {
           maxTokens,
           temperature,
           includeRiskSummary: profile.includeRiskSummary === true,
+          hasPrecomputedReturns: !!(precomputedReturns && precomputedReturns.length > 0),
           scannedPDFs: scannedPDFs.map(f => ({
             fileName: f.fileName,
             base64Data: f.base64Data!,

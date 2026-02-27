@@ -19,6 +19,8 @@ export interface AnalysePortfolioParams {
   onProgress?: (step: number, total: number, label: string) => void;
   /** Whether the user requested a Portfolio Risk Summary — affects the progress curve. */
   includeRiskSummary?: boolean;
+  /** Whether precomputed returns were provided — disables TOO_MANY_HOLDINGS detection during retry */
+  hasPrecomputedReturns?: boolean;
   /** Scanned PDFs to send as document blocks (uses Claude's native PDF support with OCR) */
   scannedPDFs?: Array<{
     fileName: string;
@@ -140,6 +142,7 @@ export async function analysePortfolioWithTools({
   temperature = 0.3,
   onProgress,
   includeRiskSummary = false,
+  hasPrecomputedReturns = false,
   scannedPDFs = [],
 }: AnalysePortfolioParams): Promise<AnalysePortfolioResult> {
   try {
@@ -282,7 +285,7 @@ export async function analysePortfolioWithTools({
         // - Holdings are missing return data (tools are being called)
         // - AND risk summary calculations are enabled (more processing needed)
         // This prevents timeout when many managed funds need Morningstar scraping
-        if (!tokensReduced && includeRiskSummary) {
+        if (!tokensReduced && includeRiskSummary && !hasPrecomputedReturns) {
           const returnFetchingTools = toolUseBlocks.filter(block => 
             block.name === 'search_holding_return' || 
             block.name === 'search_fund_return_morningstar'
@@ -290,6 +293,7 @@ export async function analysePortfolioWithTools({
           
           // DETECTION: If > 12 return-fetching tools + risk summary enabled,
           // the analysis will likely timeout. Abort early and let frontend use 2-call flow.
+          // SKIP this check if hasPrecomputedReturns=true (we're already in the retry flow)
           if (returnFetchingTools.length > 12) {
             console.log(`[Claude] 🚨 TOO MANY HOLDINGS DETECTED: ${returnFetchingTools.length} return-fetching tools + risk summary enabled`);
             console.log(`[Claude] Aborting early to prevent timeout. Frontend will use 2-call flow.`);
