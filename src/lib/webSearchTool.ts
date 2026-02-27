@@ -388,14 +388,15 @@ export async function searchHoldingReturn(
 
     console.log(`[Yahoo Finance] Fetching return for ${ticker} from ${startDate} to ${endDate}`);
 
-    // Fetch historical data from Yahoo Finance using the correct v2 API
+    // Fetch historical data from Yahoo Finance using v3 chart API (historical() is deprecated)
     // @ts-ignore - Yahoo Finance types may not be fully complete
-    const queryResult = await yahooFinance.historical(ticker, {
+    const queryResult = await yahooFinance.chart(ticker, {
       period1: startDate,
       period2: endDate,
+      interval: '1d', // Daily data
     });
 
-    if (!queryResult || queryResult.length === 0) {
+    if (!queryResult || !queryResult.quotes || queryResult.quotes.length === 0) {
       return {
         description: `No historical data found for ${ticker} (${holdingName}) on Yahoo Finance for the period ${timeframePeriod}. This ticker may not be available or the date range may be invalid.`,
         sources: [],
@@ -403,8 +404,9 @@ export async function searchHoldingReturn(
     }
 
     // Calculate total return from first and last quotes
-    const startPrice = queryResult[0].adjClose ?? queryResult[0].close;
-    const endPrice = queryResult[queryResult.length - 1].adjClose ?? queryResult[queryResult.length - 1].close;
+    const quotes = queryResult.quotes;
+    const startPrice = quotes[0].adjclose ?? quotes[0].close;
+    const endPrice = quotes[quotes.length - 1].adjclose ?? quotes[quotes.length - 1].close;
     
     if (!startPrice || !endPrice) {
       return {
