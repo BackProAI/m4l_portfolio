@@ -299,32 +299,53 @@ export default function Home() {
               console.log('[Client] 🔄 Detected large portfolio, switching to 2-call flow...');
               console.log(`[Client] Fetching returns for ${event.toolsToExecute.length} holdings...`);
               
-              // Show progress update
+              // Show initial progress update
               setAnalysisProgress(10);
-              setAnalysisProgressLabel(event.message || 'Fetching returns for large portfolio...');
+              setAnalysisProgressLabel(`Fetching returns for ${event.toolsToExecute.length} holdings...`);
               
-              // Call /api/fetch-returns to execute tools
-              const fetchReturnsResponse = await fetch('/api/fetch-returns', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tools: event.toolsToExecute }),
-              });
+              // Simulate progress during fetch-returns phase (10% -> 55%)
+              // Estimate ~5 seconds per holding on average (mix of Yahoo Finance + Morningstar)
+              const estimatedSeconds = Math.min(event.toolsToExecute.length * 5, 240);
+              const progressInterval = setInterval(() => {
+                setAnalysisProgress((prev) => {
+                  if (prev === undefined || prev >= 55) return prev;
+                  // Increment by 1% every (estimatedSeconds/45) seconds to reach 55%
+                  return Math.min(55, (prev ?? 10) + 1);
+                });
+              }, (estimatedSeconds * 1000) / 45); // 45% range (10% to 55%)
               
-              if (!fetchReturnsResponse.ok) {
-                throw new Error('Failed to fetch returns for large portfolio');
+              let fetchReturnsData: { success: boolean; returns: any[]; error?: string };
+              
+              try {
+                // Call /api/fetch-returns to execute tools
+                const fetchReturnsResponse = await fetch('/api/fetch-returns', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ tools: event.toolsToExecute }),
+                });
+                
+                // Stop progress simulation
+                clearInterval(progressInterval);
+                
+                if (!fetchReturnsResponse.ok) {
+                  throw new Error('Failed to fetch returns for large portfolio');
+                }
+                
+                fetchReturnsData = await fetchReturnsResponse.json();
+                
+                if (!fetchReturnsData.success) {
+                  throw new Error(fetchReturnsData.error || 'Failed to fetch returns');
+                }
+                
+                console.log(`[Client] ✅ Fetched returns for ${fetchReturnsData.returns.length} holdings`);
+                console.log(`[Client] Retrying analysis with precomputed returns...`);
+                
+                setAnalysisProgress(60);
+                setAnalysisProgressLabel('Completing analysis with fetched data...');
+              } catch (fetchError) {
+                clearInterval(progressInterval);
+                throw fetchError;
               }
-              
-              const fetchReturnsData = await fetchReturnsResponse.json();
-              
-              if (!fetchReturnsData.success) {
-                throw new Error(fetchReturnsData.error || 'Failed to fetch returns');
-              }
-              
-              console.log(`[Client] ✅ Fetched returns for ${fetchReturnsData.returns.length} holdings`);
-              console.log(`[Client] Retrying analysis with precomputed returns...`);
-              
-              setAnalysisProgress(60);
-              setAnalysisProgressLabel('Completing analysis with fetched data...');
               
               // Retry /api/analyze with precomputed returns
               const retryResponse = await fetch('/api/analyze', {

@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     error?: string;
   }> = [];
 
-  const CONCURRENCY = 2; // Same as claudeClient.ts
+  const CONCURRENCY = 1; // Reduced from 2 to prevent ETXTBSY browser lock errors
 
   console.log(`[fetch-returns] Executing ${tools.length} return-fetching tools with concurrency ${CONCURRENCY}`);
 
@@ -109,6 +109,27 @@ export async function POST(request: NextRequest) {
   }
 
   console.log(`[fetch-returns] Completed ${results.length} tools. Successful: ${results.filter(r => r.totalReturn !== undefined).length}`);
+
+  // Check if too many tools failed - if more than 50% failed, return error
+  const successfulCount = results.filter(r => r.totalReturn !== undefined).length;
+  const failureRate = (results.length - successfulCount) / results.length;
+
+  if (failureRate > 0.5) {
+    console.error(`[fetch-returns] ❌ High failure rate: ${Math.round(failureRate * 100)}% (${results.length - successfulCount}/${results.length} failed)`);
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: `Failed to fetch returns for ${results.length - successfulCount} out of ${results.length} holdings. This may be due to browser concurrency issues (ETXTBSY errors). Please try again or reduce portfolio size.`,
+        returns: results, // Still return partial data for debugging
+      }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
+
+  console.log(`[fetch-returns] ✅ Success rate: ${Math.round((successfulCount / results.length) * 100)}%`);
 
   return new Response(
     JSON.stringify({
