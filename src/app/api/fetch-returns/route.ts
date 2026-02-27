@@ -15,7 +15,7 @@ const FetchReturnsRequestSchema = z.object({
   tools: z.array(
     z.object({
       name: z.string(),
-      input: z.record(z.any()),
+      input: z.record(z.string(), z.any()),
     })
   ),
 });
@@ -84,16 +84,16 @@ export async function POST(request: NextRequest) {
           }
           
           return {
-            holdingName: tool.input.holding_name || tool.input.fund_name || '',
-            ticker: tool.input.ticker,
+            holdingName: String(tool.input.holding_name || tool.input.fund_name || ''),
+            ticker: tool.input.ticker as string | undefined,
             totalReturn,
             timeframe,
           };
         } catch (error) {
           console.error(`[fetch-returns] Tool ${tool.name} failed:`, error);
           return {
-            holdingName: tool.input.holding_name || tool.input.fund_name || '',
-            ticker: tool.input.ticker,
+            holdingName: String(tool.input.holding_name || tool.input.fund_name || ''),
+            ticker: tool.input.ticker as string | undefined,
             error: error instanceof Error ? error.message : 'Unknown error',
           };
         }
