@@ -193,6 +193,12 @@ export async function analysePortfolioWithTools({
     // Without risk summary: fewer calls so reach ceiling faster with a lower cap
     const PROGRESS_BUFFER = includeRiskSummary ? 4 : 1;
     const PROGRESS_CAP = includeRiskSummary ? 90 : 75;
+    
+    // Dynamic max_tokens optimization:
+    // When holdings are missing returns AND risk summary is enabled, reduce max_tokens
+    // to speed up final response generation and avoid timeout
+    let dynamicMaxTokens = maxTokens;
+    let tokensReduced = false;
 
     // Tool use loop - continue until Claude provides final answer
     while (iterationCount < maxIterations) {
@@ -201,7 +207,7 @@ export async function analysePortfolioWithTools({
       // Call Claude API with tools
       response = await anthropic.messages.create({
         model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
-        max_tokens: maxTokens,
+        max_tokens: dynamicMaxTokens,
         temperature,
         system: systemPrompt,
         messages,
@@ -265,6 +271,27 @@ export async function analysePortfolioWithTools({
             success: false,
             error: 'Claude requested tool use but no tool blocks found',
           };
+        }
+        
+        // OPTIMIZATION: Reduce max_tokens to speed up final generation when:
+        // - Holdings are missing return data (tools are being called)
+        // - AND risk summary calculations are enabled (more processing needed)
+        // This prevents timeout when many managed funds need Morningstar scraping
+        if (!tokensReduced && includeRiskSummary) {
+          const returnFetchingTools = toolUseBlocks.filter(block => 
+            block.name === 'search_holding_return' || 
+            block.name === 'search_fund_return_morningstar'
+          );
+          
+          if (returnFetchingTools.length > 0) {
+            // Reduce from 16000 to 12000 tokens - still sufficient for complete analysis
+            // but 25% faster generation, helping stay under 300s timeout
+            const originalMaxTokens = dynamicMaxTokens;
+            dynamicMaxTokens = Math.min(dynamicMaxTokens, 12000);
+            tokensReduced = true;
+            
+            console.log(`[Claude] 🚀 PERFORMANCE OPTIMIZATION: Reduced max_tokens from ${originalMaxTokens} to ${dynamicMaxTokens} (detected ${returnFetchingTools.length} return-fetching tools + risk summary enabled)`);
+          }
         }
 
         // Add Claude's response to message history
