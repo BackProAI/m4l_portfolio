@@ -396,7 +396,15 @@ export async function searchHoldingReturn(
       interval: '1d', // Daily data
     });
 
+    console.log(`[Yahoo Finance] Response structure:`, {
+      hasResult: !!queryResult,
+      keys: queryResult ? Object.keys(queryResult) : [],
+      hasQuotes: queryResult && 'quotes' in queryResult,
+      quotesLength: queryResult?.quotes?.length
+    });
+
     if (!queryResult || !queryResult.quotes || queryResult.quotes.length === 0) {
+      console.error(`[Yahoo Finance] ❌ No data for ${ticker}`);
       return {
         description: `No historical data found for ${ticker} (${holdingName}) on Yahoo Finance for the period ${timeframePeriod}. This ticker may not be available or the date range may be invalid.`,
         sources: [],
@@ -416,6 +424,8 @@ export async function searchHoldingReturn(
     }
 
     const totalReturn = ((endPrice - startPrice) / startPrice) * 100;
+
+    console.log(`[Yahoo Finance] ✅ Successfully calculated return for ${ticker}: ${totalReturn.toFixed(2)}%`);
 
     const description = `${holdingName} (${ticker}): Total return over the time period ${timeframePeriod} is ${totalReturn.toFixed(2)}%. Start price: $${startPrice.toFixed(2)}, End price: $${endPrice.toFixed(2)}. Data retrieved from Yahoo Finance historical prices.`;
 
