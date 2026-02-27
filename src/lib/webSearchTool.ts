@@ -757,11 +757,12 @@ export async function searchFundReturnMorningstar(
     }
 
     // Wait for performance table to load (check both class variants)
+    // Increased timeout to 40s to handle slow page renders during concurrent scraping
     try {
-      await page.waitForSelector('[class*="mds-table"]', { timeout: 20000 });
+      await page.waitForSelector('[class*="mds-table"]', { timeout: 40000 });
       console.log(`[Morningstar] Performance table loaded`);
     } catch (err) {
-      console.log(`[Morningstar] Table timeout - checking what exists...`);
+      console.log(`[Morningstar] Table timeout after 40s - checking what exists...`);
       const pageState = await page.evaluate(() => {
         return {
           hasTables: document.querySelectorAll('table').length,

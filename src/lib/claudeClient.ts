@@ -353,7 +353,8 @@ export async function analysePortfolioWithTools({
               console.log(`Executing tool: ${toolUse.name} with input:`, toolUse.input);
 
               // Execute tool with timeout protection
-              const TOOL_TIMEOUT_MS = 60000; // 60 seconds per tool
+              // Increased to 90s to accommodate Morningstar scrapes with 40s table wait + 30s navigation
+              const TOOL_TIMEOUT_MS = 90000; // 90 seconds per tool
               const timeoutPromise = new Promise<string>((_, reject) => {
                 setTimeout(() => reject(new Error(`Tool execution timeout after ${TOOL_TIMEOUT_MS / 1000}s`)), TOOL_TIMEOUT_MS);
               });
