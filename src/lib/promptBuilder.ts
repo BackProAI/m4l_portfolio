@@ -6,8 +6,14 @@ import type { InvestorProfile } from '@/types';
 
 export function buildAnalysisPrompt(
   profile: InvestorProfile,
-  documentContent: string
-): { system: string; user: string } {
+  documentContent: string,
+  precomputedReturns?: Array<{
+    holdingName: string;
+    totalReturn?: number;
+    timeframe?: string;
+    ticker?: string;
+  }>
+): { system: string; user: string} {
   // System prompt - Define Claude's role
   const systemPrompt = `You are an expert Australian financial portfolio analyst with deep expertise in superannuation, managed funds, and investment strategy. Your role is to provide purely factual analysis of investment portfolios.
 
@@ -141,6 +147,19 @@ ${profile.isIndustrySuperFund ? `<industry_super_fund_risk_profile>${profile.ind
 <portfolio_documents>
 ${documentContent}
 </portfolio_documents>
+${precomputedReturns && precomputedReturns.length > 0 ? `
+<precomputed_returns>
+IMPORTANT: The following holdings already have return data fetched. DO NOT call search_holding_return or search_fund_return_morningstar tools for these holdings. Use this data directly:
+
+${precomputedReturns.map(r => {
+  if (r.totalReturn !== undefined && r.timeframe) {
+    return `- ${r.holdingName}${r.ticker ? ` (${r.ticker})` : ''}: ${r.totalReturn}% for the period ${r.timeframe}`;
+  } else {
+    return `- ${r.holdingName}${r.ticker ? ` (${r.ticker})` : ''}: No return data available`;
+  }
+}).join('\n')}
+</precomputed_returns>
+` : ''}
 
 <analysis_requirements>
 Provide a purely factual, objective analysis. State only what IS, not what SHOULD BE. Do NOT provide advice, recommendations, or suggestions.

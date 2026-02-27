@@ -53,12 +53,22 @@ const AnalyseRequestSchema = z.object({
       base64Data: z.string().optional(),
     })
   ).min(1, 'At least one file is required'),
+  // Optional precomputed returns from /api/fetch-returns
+  precomputedReturns: z.array(
+    z.object({
+      holdingName: z.string(),
+      totalReturn: z.number().optional(),
+      timeframe: z.string().optional(),
+      ticker: z.string().optional(),
+    })
+  ).optional(),
 });
 
 export async function POST(request: NextRequest) {
   // Parse and validate request body
   let profile: z.infer<typeof AnalyseRequestSchema>['profile'];
   let files: z.infer<typeof AnalyseRequestSchema>['files'];
+  let precomputedReturns: z.infer<typeof AnalyseRequestSchema>['precomputedReturns'];
 
   try {
     const body = await request.json();
@@ -73,6 +83,7 @@ export async function POST(request: NextRequest) {
 
     profile = validationResult.data.profile;
     files = validationResult.data.files;
+    precomputedReturns = validationResult.data.precomputedReturns;
   } catch {
     return new Response(
       JSON.stringify({ success: false, error: 'Failed to parse request body' }),
@@ -93,9 +104,14 @@ export async function POST(request: NextRequest) {
   const textFiles = files.filter(f => !f.isScanned || !f.base64Data);
   
   const documentContent = combineDocumentContents(textFiles);
-  const { system, user } = buildAnalysisPrompt(profile, documentContent);
+  const { system, user } = buildAnalysisPrompt(profile, documentContent, precomputedReturns);
   const maxTokens = process.env.CLAUDE_MAX_TOKENS ? parseInt(process.env.CLAUDE_MAX_TOKENS, 10) : 16000;
   const temperature = process.env.CLAUDE_TEMPERATURE ? parseFloat(process.env.CLAUDE_TEMPERATURE) : 0.3;
+
+  // Log if using precomputed returns
+  if (precomputedReturns && precomputedReturns.length > 0) {
+    console.log(`[API] Using ${precomputedReturns.length} precomputed returns (2-call flow)`);
+  }
 
   // Return a Server-Sent Events stream
   const stream = new ReadableStream({
@@ -135,7 +151,20 @@ export async function POST(request: NextRequest) {
 
         if (!result.success) {
           console.error('[API] Claude analysis failed:', result.error);
-          encode({ type: 'error', error: result.error || 'Failed to analyse portfolio' });
+          
+          // Special handling for TOO_MANY_HOLDINGS error - pass toolsToExecute to frontend
+          if (result.error === 'TOO_MANY_HOLDINGS' && result.toolsToExecute) {
+            console.log(`[API] Detected large portfolio: ${result.toolsToExecute.length} holdings need returns`);
+            encode({ 
+              type: 'error', 
+              error: 'TOO_MANY_HOLDINGS',
+              toolsToExecute: result.toolsToExecute,
+              message: `Large portfolio detected (${result.toolsToExecute.length} holdings without returns). Switching to optimized 2-step analysis...`
+            });
+          } else {
+            encode({ type: 'error', error: result.error || 'Failed to analyse portfolio' });
+          }
+          
           await new Promise(resolve => setTimeout(resolve, 500));
           closeController();
           return;

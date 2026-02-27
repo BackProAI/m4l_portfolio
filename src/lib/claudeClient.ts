@@ -35,6 +35,11 @@ export interface AnalysePortfolioResult {
     outputTokens: number;
   };
   model?: string;
+  // Additional fields for TOO_MANY_HOLDINGS error
+  toolsToExecute?: Array<{
+    name: string;
+    input: Record<string, any>;
+  }>;
 }
 
 /**
@@ -282,6 +287,22 @@ export async function analysePortfolioWithTools({
             block.name === 'search_holding_return' || 
             block.name === 'search_fund_return_morningstar'
           );
+          
+          // DETECTION: If > 12 return-fetching tools + risk summary enabled,
+          // the analysis will likely timeout. Abort early and let frontend use 2-call flow.
+          if (returnFetchingTools.length > 12) {
+            console.log(`[Claude] 🚨 TOO MANY HOLDINGS DETECTED: ${returnFetchingTools.length} return-fetching tools + risk summary enabled`);
+            console.log(`[Claude] Aborting early to prevent timeout. Frontend will use 2-call flow.`);
+            
+            return {
+              success: false,
+              error: 'TOO_MANY_HOLDINGS',
+              toolsToExecute: returnFetchingTools.map(block => ({
+                name: block.name,
+                input: block.input,
+              })),
+            } as any; // Cast to any to allow additional fields
+          }
           
           if (returnFetchingTools.length > 0) {
             // Reduce from 16000 to 12000 tokens - still sufficient for complete analysis

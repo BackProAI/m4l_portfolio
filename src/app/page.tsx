@@ -293,6 +293,95 @@ export default function Home() {
               error: event.error,
               timestamp: Date.now()
             });
+            
+            // Special handling for TOO_MANY_HOLDINGS error - retry with 2-call flow
+            if (event.error === 'TOO_MANY_HOLDINGS' && event.toolsToExecute) {
+              console.log('[Client] 🔄 Detected large portfolio, switching to 2-call flow...');
+              console.log(`[Client] Fetching returns for ${event.toolsToExecute.length} holdings...`);
+              
+              // Show progress update
+              setAnalysisProgress(10);
+              setAnalysisProgressLabel(event.message || 'Fetching returns for large portfolio...');
+              
+              // Call /api/fetch-returns to execute tools
+              const fetchReturnsResponse = await fetch('/api/fetch-returns', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tools: event.toolsToExecute }),
+              });
+              
+              if (!fetchReturnsResponse.ok) {
+                throw new Error('Failed to fetch returns for large portfolio');
+              }
+              
+              const fetchReturnsData = await fetchReturnsResponse.json();
+              
+              if (!fetchReturnsData.success) {
+                throw new Error(fetchReturnsData.error || 'Failed to fetch returns');
+              }
+              
+              console.log(`[Client] ✅ Fetched returns for ${fetchReturnsData.returns.length} holdings`);
+              console.log(`[Client] Retrying analysis with precomputed returns...`);
+              
+              setAnalysisProgress(60);
+              setAnalysisProgressLabel('Completing analysis with fetched data...');
+              
+              // Retry /api/analyze with precomputed returns
+              const retryResponse = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  ...requestData,
+                  precomputedReturns: fetchReturnsData.returns,
+                }),
+              });
+              
+              if (!retryResponse.ok || !retryResponse.body) {
+                const errJson = await retryResponse.json().catch(() => ({}));
+                throw new Error((errJson as any).error || 'Retry analysis failed');
+              }
+              
+              // Process retry response (same SSE handling)
+              const retryReader = retryResponse.body.getReader();
+              const retryDecoder = new TextDecoder();
+              let retryBuffer = '';
+              
+              while (true) {
+                const { value, done } = await retryReader.read();
+                if (done) break;
+                
+                retryBuffer += retryDecoder.decode(value, { stream: true });
+                const retryParts = retryBuffer.split('\n\n');
+                retryBuffer = retryParts.pop() ?? '';
+                
+                for (const retryPart of retryParts) {
+                  const retryLine = retryPart.trim();
+                  if (!retryLine.startsWith('data: ')) continue;
+                  
+                  const retryEvent = JSON.parse(retryLine.slice(6));
+                  
+                  if (retryEvent.type === 'progress') {
+                    // Scale progress from 60-100 range
+                    const scaledPct = 60 + Math.round((retryEvent.step / retryEvent.total) * 40);
+                    setAnalysisProgress(scaledPct);
+                    setAnalysisProgressLabel(retryEvent.label ?? undefined);
+                  } else if (retryEvent.type === 'result') {
+                    setAnalysisResult(retryEvent.data.analysis);
+                    setAnalysisProgress(100);
+                    setTimeout(() => {
+                      document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                    return; // Success! Exit handleAnalyse
+                  } else if (retryEvent.type === 'error') {
+                    throw new Error(retryEvent.error || 'Retry analysis failed');
+                  }
+                }
+              }
+              
+              return; // Successfully completed 2-call flow
+            }
+            
+            // Regular error (not TOO_MANY_HOLDINGS)
             throw new Error(event.error || 'Analysis failed');
           }
         }
