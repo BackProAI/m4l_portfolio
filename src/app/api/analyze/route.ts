@@ -60,6 +60,7 @@ const AnalyseRequestSchema = z.object({
       totalReturn: z.number().optional(),
       timeframe: z.string().optional(),
       ticker: z.string().optional(),
+      fundManager: z.string().optional(),
     })
   ).optional(),
 });
@@ -111,6 +112,13 @@ export async function POST(request: NextRequest) {
   // Log if using precomputed returns
   if (precomputedReturns && precomputedReturns.length > 0) {
     console.log(`[API] Using ${precomputedReturns.length} precomputed returns (2-call flow)`);
+    console.log('[API] Sample precomputed entries (first 3):');
+    precomputedReturns.slice(0, 3).forEach(r => {
+      const identifiers = [r.holdingName];
+      if (r.fundManager) identifiers.push(`(${r.fundManager})`);
+      if (r.ticker) identifiers.push(`[${r.ticker}]`);
+      console.log(`  - ${identifiers.join(' ')}: ${r.totalReturn}% ${r.timeframe || 'N/A'}`);
+    });
   }
 
   // Return a Server-Sent Events stream

@@ -12,6 +12,7 @@ export function buildAnalysisPrompt(
     totalReturn?: number;
     timeframe?: string;
     ticker?: string;
+    fundManager?: string;
   }>
 ): { system: string; user: string} {
   // System prompt - Define Claude's role
@@ -149,15 +150,29 @@ ${documentContent}
 </portfolio_documents>
 ${precomputedReturns && precomputedReturns.length > 0 ? `
 <precomputed_returns>
-IMPORTANT: The following holdings already have return data fetched. DO NOT call search_holding_return or search_fund_return_morningstar tools for these holdings. Use this data directly:
+CRITICAL: The following holdings already have return data fetched in a previous step. 
+
+DO NOT call search_holding_return or search_fund_return_morningstar tools for ANY holding whose name matches or closely resembles any name in this list (even with minor differences in spacing, punctuation, or class designation).
+
+SKIP tool calls for these holdings and use the precomputed data directly instead:
 
 ${precomputedReturns.map(r => {
   if (r.totalReturn !== undefined && r.timeframe) {
-    return `- ${r.holdingName}${r.ticker ? ` (${r.ticker})` : ''}: ${r.totalReturn}% for the period ${r.timeframe}`;
+    const identifiers = [];
+    identifiers.push(r.holdingName);
+    if (r.fundManager) identifiers.push(`(${r.fundManager})`);
+    if (r.ticker) identifiers.push(`[${r.ticker}]`);
+    return `- ${identifiers.join(' ')}: ${r.totalReturn}% for the period ${r.timeframe}`;
   } else {
-    return `- ${r.holdingName}${r.ticker ? ` (${r.ticker})` : ''}: No return data available`;
+    const identifiers = [];
+    identifiers.push(r.holdingName);
+    if (r.fundManager) identifiers.push(`(${r.fundManager})`);
+    if (r.ticker) identifiers.push(`[${r.ticker}]`);
+    return `- ${identifiers.join(' ')}: No return data available`;
   }
 }).join('\n')}
+
+When analyzing the portfolio, if you encounter a holding that matches any of the ${precomputedReturns.length} names above (even partially), use that precomputed return value. DO NOT make duplicate tool calls.
 </precomputed_returns>
 ` : ''}
 

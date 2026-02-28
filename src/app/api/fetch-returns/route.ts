@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
           return {
             holdingName: String(tool.input.holding_name || tool.input.fund_name || ''),
             ticker: tool.input.ticker as string | undefined,
+            fundManager: tool.input.fund_manager as string | undefined,
             totalReturn,
             timeframe,
           };
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
           return {
             holdingName: String(tool.input.holding_name || tool.input.fund_name || ''),
             ticker: tool.input.ticker as string | undefined,
+            fundManager: tool.input.fund_manager as string | undefined,
             error: error instanceof Error ? error.message : 'Unknown error',
           };
         }
