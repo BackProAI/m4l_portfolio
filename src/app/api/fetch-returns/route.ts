@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
           
           // Parse the result to extract return and timeframe
           // Format: "Fund: 1-year Investor Return is 3.52% for the period 1 Feb 2025 to 31 Jan 2026"
-          // or: "Total return for CBA.AX from 24 Feb 2025 to 24 Feb 2026: 12.5%"
+          // or: "AGL Energy Limited (AGL.AX): Total return over the time period 24 Feb 2025 to 24 Feb 2026 is 1.89%..."
           
           let totalReturn: number | undefined;
           let timeframe: string | undefined;
@@ -77,11 +77,13 @@ export async function POST(request: NextRequest) {
             totalReturn = parseFloat(returnMatch[1]);
           }
           
-          // Extract timeframe (look for pattern like "for the period X to Y" or "from X to Y")
-          const timeframeMatch = result.match(/(?:for the period|from) ([^.]+? to [^.]+?)(?:\.|$|Sources)/i);
+          // Extract timeframe (look for pattern like "for the period X to Y", "over the time period X to Y", or "from X to Y")
+          const timeframeMatch = result.match(/(?:for the period|over the time period|from) ([^.]+? to [^.]+?)(?:\s+is\s+|\.|$|Sources|Start price)/i);
           if (timeframeMatch) {
             timeframe = timeframeMatch[1].trim();
           }
+          
+          console.log(`[fetch-returns] Parsed ${tool.input.holding_name || tool.input.fund_name}: return=${totalReturn}, timeframe=${timeframe}`);
           
           return {
             holdingName: String(tool.input.holding_name || tool.input.fund_name || ''),
