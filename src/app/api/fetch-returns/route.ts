@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     error?: string;
   }> = [];
 
-  const CONCURRENCY = 1; // Reduced from 2 to prevent ETXTBSY browser lock errors
+  const CONCURRENCY = 2; // Concurrency of 2 balances speed vs. ETXTBSY errors
 
   console.log(`[fetch-returns] Executing ${tools.length} return-fetching tools with concurrency ${CONCURRENCY}`);
 
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
     return new Response(
       JSON.stringify({
         success: false,
-        error: `Failed to fetch returns for ${results.length - successfulCount} out of ${results.length} holdings. This may be due to browser concurrency issues (ETXTBSY errors). Please try again or reduce portfolio size.`,
+        error: `Failed to fetch returns for ${results.length - successfulCount} out of ${results.length} holdings. Your portfolio may be too large for the current timeout limits (300 seconds). Consider: (1) Reducing portfolio size to ~30 holdings, or (2) Upgrading to Vercel Enterprise for 900s timeout limits.`,
         returns: results, // Still return partial data for debugging
       }),
       {

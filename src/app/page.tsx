@@ -328,7 +328,14 @@ export default function Home() {
                 clearInterval(progressInterval);
                 
                 if (!fetchReturnsResponse.ok) {
-                  throw new Error('Failed to fetch returns for large portfolio');
+                  // Check for timeout error (504 Gateway Timeout)
+                  if (fetchReturnsResponse.status === 504) {
+                    throw new Error(`Portfolio is too large to analyze within timeout limits (300 seconds). Your portfolio has ${event.toolsToExecute.length} holdings. Try reducing to ~30 holdings or less, or contact support about upgrading for extended analysis time.`);
+                  }
+                  
+                  // Try to get error message from response
+                  const errorData = await fetchReturnsResponse.json().catch(() => null);
+                  throw new Error(errorData?.error || `Failed to fetch returns for large portfolio (HTTP ${fetchReturnsResponse.status})`);
                 }
                 
                 fetchReturnsData = await fetchReturnsResponse.json();
