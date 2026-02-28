@@ -461,7 +461,7 @@ async function launchBrowser() {
       'https://github.com/Sparticuz/chromium/releases/download/v133.0.0/chromium-v133.0.0-pack.tar'
     );
 
-    // Retry logic for ETXTBSY race condition during concurrent chromium extraction
+    // Retry logic for ETXTBSY race condition + corrupted tar handling during concurrent chromium extraction
     const MAX_RETRIES = 3;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -473,13 +473,16 @@ async function launchBrowser() {
         });
       } catch (error: any) {
         const isETXTBSY = error?.code === 'ETXTBSY' || error?.syscall === 'spawn';
-        if (isETXTBSY && attempt < MAX_RETRIES) {
+        const isCorruptedTar = error?.message?.includes?.('Invalid tar header') || error?.message?.includes?.('corrupted');
+        
+        if ((isETXTBSY || isCorruptedTar) && attempt < MAX_RETRIES) {
           const delay = 1000 * attempt; // Exponential backoff: 1s, 2s
-          console.warn(`[Browser] ETXTBSY error on attempt ${attempt}, retrying in ${delay}ms...`);
+          const reason = isCorruptedTar ? 'corrupted tar file' : 'ETXTBSY error';
+          console.warn(`[Browser] ${reason} on attempt ${attempt}, retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
-        throw error; // Re-throw if not ETXTBSY or out of retries
+        throw error; // Re-throw if not recoverable or out of retries
       }
     }
     throw new Error('Failed to launch browser after retries');
