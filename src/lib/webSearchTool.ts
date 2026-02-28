@@ -661,32 +661,29 @@ export async function searchFundReturnMorningstar(
       console.log(`[Morningstar] Error handling modal:`, e);
     }
 
-    // DIAGNOSTIC: Log what content exists on the page
-    const diagnostics = await page.evaluate(() => {
-      const allButtons = Array.from(document.querySelectorAll('button'));
-      const mcaButtons = Array.from(document.querySelectorAll('button.mds-button__mca-dfd'));
-      const salButtons = Array.from(document.querySelectorAll('button.mds-button__sal'));
-      
-      return {
-        url: window.location.href,
-        totalButtons: allButtons.length,
-        mcaButtonCount: mcaButtons.length,
-        salButtonCount: salButtons.length,
-        hasPerformanceContent: !!document.querySelector('.segment-band__tabs'),
-        hasAnyTable: !!document.querySelector('table'),
-        hasMdsTable: !!document.querySelector('.mds-table__sal') || !!document.querySelector('.mds-table__mca-dfd'),
-        bodyClasses: document.body.className,
-        buttonSample: allButtons.slice(0, 3).map(btn => ({
-          text: btn.textContent?.trim().substring(0, 50),
-          classes: btn.className
-        }))
-      };
-    });
-    console.log(`[Morningstar] PAGE STATE:`, JSON.stringify(diagnostics, null, 2));
-
-    // Switch from "Annual" to "Trailing" returns view
+    // STEP 1: Wait for initial performance table to load FIRST
+    // Increased timeout to 60s to handle slow page renders during cold start + concurrent scraping
+    console.log(`[Morningstar] Waiting for initial performance table to load...`);
     try {
-      await new Promise(resolve => setTimeout(resolve, 500)); // Additional wait for page elements to be ready
+      await page.waitForSelector('[class*="mds-table"]', { timeout: 60000 });
+      console.log(`[Morningstar] Initial performance table loaded`);
+    } catch (err) {
+      console.log(`[Morningstar] Table timeout after 60s - checking what exists...`);
+      const pageState = await page.evaluate(() => {
+        return {
+          hasTables: document.querySelectorAll('table').length,
+          hasMdsTables: document.querySelectorAll('[class*="mds-table"]').length,
+          bodyText: document.body.innerText.substring(0, 500)
+        };
+      });
+      console.log(`[Morningstar] Page state at timeout:`, JSON.stringify(pageState, null, 2));
+      throw err;
+    }
+
+    // STEP 2: Now switch from "Annual" to "Trailing" returns view
+    console.log(`[Morningstar] Switching from Annual to Trailing view...`);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 500)); // Brief wait for page stabilization
       
       // First, try to find and click a direct "Trailing" button
       const directClick = await page.evaluate(() => {
@@ -702,7 +699,7 @@ export async function searchFundReturnMorningstar(
       
       if (directClick) {
         console.log(`[Morningstar] Clicked Trailing button directly`);
-        await new Promise(resolve => setTimeout(resolve, 2500));
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for table reload
       } else {
         // Try dropdown approach: click "Annual" dropdown first
         const dropdownOpened = await page.evaluate(() => {
@@ -727,7 +724,7 @@ export async function searchFundReturnMorningstar(
         
         if (dropdownOpened) {
           console.log(`[Morningstar] Opened Annual dropdown`);
-          await new Promise(resolve => setTimeout(resolve, 800)); // Wait for popover menu to appear
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for popover menu to appear
           
           // Now click "Trailing" in the popover menu
           const menuItemClicked = await page.evaluate(() => {
@@ -759,7 +756,7 @@ export async function searchFundReturnMorningstar(
           
           if (menuItemClicked) {
             console.log(`[Morningstar] Clicked Trailing from dropdown menu`);
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for table to reload
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for table to reload with Trailing data
           } else {
             console.log(`[Morningstar] Warning: Could not find Trailing in dropdown menu`);
           }
@@ -771,23 +768,9 @@ export async function searchFundReturnMorningstar(
       console.log(`[Morningstar] Error switching to Trailing view:`, e);
     }
 
-    // Wait for performance table to load (check both class variants)
-    // Increased timeout to 60s to handle slow page renders during cold start + concurrent scraping
-    try {
-      await page.waitForSelector('[class*="mds-table"]', { timeout: 60000 });
-      console.log(`[Morningstar] Performance table loaded`);
-    } catch (err) {
-      console.log(`[Morningstar] Table timeout after 60s - checking what exists...`);
-      const pageState = await page.evaluate(() => {
-        return {
-          hasTables: document.querySelectorAll('table').length,
-          hasMdsTables: document.querySelectorAll('[class*="mds-table"]').length,
-          bodyText: document.body.innerText.substring(0, 500)
-        };
-      });
-      console.log(`[Morningstar] Page state at timeout:`, JSON.stringify(pageState, null, 2));
-      throw err;
-    }
+    // STEP 3: Wait for table to stabilize after switching to Trailing view
+    console.log(`[Morningstar] Waiting for Trailing table to stabilize...`);
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Extract the "as of" date from Morningstar to get the actual reporting period
     const asOfDate = await page.evaluate(() => {
