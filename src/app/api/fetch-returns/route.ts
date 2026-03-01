@@ -52,13 +52,18 @@ export async function POST(request: NextRequest) {
   }> = [];
 
   const CONCURRENCY = 2; // Concurrency of 2 balances speed vs. ETXTBSY errors
+  const STAGGER_DELAY_MS = 1500; // 1.5s delay between browser launches to reduce resource contention
 
   console.log(`[fetch-returns] Executing ${tools.length} return-fetching tools with concurrency ${CONCURRENCY}`);
 
-  // Helper to execute a batch of tools concurrently
-  const executeBatch = async (batch: typeof tools) => {
+  // Helper to execute a batch of tools concurrently with staggered launches
+  const executeBatch = async (batch: typeof tools, batchIndex: number) => {
     return Promise.all(
-      batch.map(async (tool) => {
+      batch.map(async (tool, indexInBatch) => {
+        // Stagger browser launches to reduce resource contention (especially for Morningstar)
+        if (indexInBatch > 0) {
+          await new Promise(resolve => setTimeout(resolve, STAGGER_DELAY_MS));
+        }
         try {
           console.log(`[fetch-returns] Executing ${tool.name}:`, tool.input);
           
@@ -108,7 +113,8 @@ export async function POST(request: NextRequest) {
   // Process tools in batches
   for (let i = 0; i < tools.length; i += CONCURRENCY) {
     const batch = tools.slice(i, i + CONCURRENCY);
-    const batchResults = await executeBatch(batch);
+    const batchIndex = Math.floor(i / CONCURRENCY);
+    const batchResults = await executeBatch(batch, batchIndex);
     results.push(...batchResults);
   }
 

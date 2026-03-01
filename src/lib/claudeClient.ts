@@ -329,11 +329,16 @@ export async function analysePortfolioWithTools({
         // when many Morningstar scrapes are needed (e.g., 14 managed funds)
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
         const CONCURRENCY = 2; // Run up to 2 browser instances simultaneously (3 was too aggressive)
+        const STAGGER_DELAY_MS = 1500; // 1.5s delay between browser launches to reduce resource contention
 
-        // Helper to execute a batch of tools concurrently
+        // Helper to execute a batch of tools concurrently with staggered launches
         const executeBatch = async (batch: Anthropic.ToolUseBlock[]) => {
           return Promise.all(
-            batch.map(async (toolUse) => {
+            batch.map(async (toolUse, indexInBatch) => {
+              // Stagger browser launches to reduce resource contention (especially for Morningstar)
+              if (indexInBatch > 0) {
+                await new Promise(resolve => setTimeout(resolve, STAGGER_DELAY_MS));
+              }
               const inp = toolUse.input as Record<string, any>;
 
               // Build a human-readable label for this tool call

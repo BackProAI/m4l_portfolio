@@ -662,13 +662,14 @@ export async function searchFundReturnMorningstar(
     }
 
     // STEP 1: Wait for initial performance table to load FIRST
-    // Increased timeout to 60s to handle slow page renders during cold start + concurrent scraping
+    // Timeout reduced to 40s to fail faster on broken pages (Vercel 300s limit)
+    // If table doesn't appear in 40s, page is likely broken anyway
     console.log(`[Morningstar] Waiting for initial performance table to load...`);
     try {
-      await page.waitForSelector('[class*="mds-table"]', { timeout: 60000 });
+      await page.waitForSelector('[class*="mds-table"]', { timeout: 40000 });
       console.log(`[Morningstar] Initial performance table loaded`);
     } catch (err) {
-      console.log(`[Morningstar] Table timeout after 60s - checking what exists...`);
+      console.log(`[Morningstar] Table timeout after 40s - checking what exists...`);
       const pageState = await page.evaluate(() => {
         return {
           hasTables: document.querySelectorAll('table').length,

@@ -299,13 +299,19 @@ export default function Home() {
               console.log('[Client] 🔄 Detected large portfolio, switching to 2-call flow...');
               console.log(`[Client] Fetching returns for ${event.toolsToExecute.length} holdings...`);
               
+              // Split tools into Yahoo Finance (fast) and Morningstar (slow) for parallel execution
+              const yahooFinanceTools = event.toolsToExecute.filter((tool: any) => tool.name === 'search_holding_return');
+              const morningstarTools = event.toolsToExecute.filter((tool: any) => tool.name === 'search_fund_return_morningstar');
+              
+              console.log(`[Client] Split: ${yahooFinanceTools.length} Yahoo Finance, ${morningstarTools.length} Morningstar`);
+              
               // Show initial progress update
               setAnalysisProgress(10);
-              setAnalysisProgressLabel(`Fetching returns for ${event.toolsToExecute.length} holdings...`);
+              setAnalysisProgressLabel(`Fetching returns: ${yahooFinanceTools.length} stocks + ${morningstarTools.length} funds...`);
               
               // Simulate progress during fetch-returns phase (10% -> 55%)
-              // Estimate ~5 seconds per holding on average (mix of Yahoo Finance + Morningstar)
-              const estimatedSeconds = Math.min(event.toolsToExecute.length * 5, 240);
+              // Yahoo is fast (~1-2s each), Morningstar is slow (~5-10s each)
+              const estimatedSeconds = Math.min(yahooFinanceTools.length * 2 + morningstarTools.length * 8, 240);
               const progressInterval = setInterval(() => {
                 setAnalysisProgress((prev) => {
                   if (prev === undefined || prev >= 55) return prev;
@@ -314,37 +320,70 @@ export default function Home() {
                 });
               }, (estimatedSeconds * 1000) / 45); // 45% range (10% to 55%)
               
-              let fetchReturnsData: { success: boolean; returns: any[]; error?: string };
+              let allReturns: any[] = [];
               
               try {
-                // Call /api/fetch-returns to execute tools
-                const fetchReturnsResponse = await fetch('/api/fetch-returns', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ tools: event.toolsToExecute }),
-                });
+                // Call both APIs in parallel (each has separate 300s timeout)
+                const promises = [];
+                
+                if (yahooFinanceTools.length > 0) {
+                  console.log(`[Client] 📊 Starting Yahoo Finance fetch (${yahooFinanceTools.length} holdings)...`);
+                  promises.push(
+                    fetch('/api/fetch-returns', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tools: yahooFinanceTools }),
+                    }).then(async (response) => {
+                      if (!response.ok) {
+                        const errorData = await response.json().catch(() => null);
+                        throw new Error(`Yahoo Finance: ${errorData?.error || `HTTP ${response.status}`}`);
+                      }
+                      const data = await response.json();
+                      if (!data.success) {
+                        throw new Error(`Yahoo Finance: ${data.error || 'Unknown error'}`);
+                      }
+                      console.log(`[Client] ✅ Yahoo Finance complete: ${data.returns.length} returns`);
+                      return data.returns;
+                    })
+                  );
+                }
+                
+                if (morningstarTools.length > 0) {
+                  console.log(`[Client] 🌟 Starting Morningstar fetch (${morningstarTools.length} funds)...`);
+                  promises.push(
+                    fetch('/api/fetch-returns', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tools: morningstarTools }),
+                    }).then(async (response) => {
+                      if (!response.ok) {
+                        // Check for timeout error (504 Gateway Timeout)
+                        if (response.status === 504) {
+                          throw new Error(`Morningstar: Portfolio too large (${morningstarTools.length} funds exceeded 300s limit). Try reducing managed funds.`);
+                        }
+                        const errorData = await response.json().catch(() => null);
+                        throw new Error(`Morningstar: ${errorData?.error || `HTTP ${response.status}`}`);
+                      }
+                      const data = await response.json();
+                      if (!data.success) {
+                        throw new Error(`Morningstar: ${data.error || 'Unknown error'}`);
+                      }
+                      console.log(`[Client] ✅ Morningstar complete: ${data.returns.length} returns`);
+                      return data.returns;
+                    })
+                  );
+                }
+                
+                // Wait for both to complete
+                const results = await Promise.all(promises);
                 
                 // Stop progress simulation
                 clearInterval(progressInterval);
                 
-                if (!fetchReturnsResponse.ok) {
-                  // Check for timeout error (504 Gateway Timeout)
-                  if (fetchReturnsResponse.status === 504) {
-                    throw new Error(`Portfolio is too large to analyze within timeout limits (300 seconds). Your portfolio has ${event.toolsToExecute.length} holdings. Try reducing to ~30 holdings or less, or contact support about upgrading for extended analysis time.`);
-                  }
-                  
-                  // Try to get error message from response
-                  const errorData = await fetchReturnsResponse.json().catch(() => null);
-                  throw new Error(errorData?.error || `Failed to fetch returns for large portfolio (HTTP ${fetchReturnsResponse.status})`);
-                }
+                // Merge all returns
+                allReturns = results.flat();
                 
-                fetchReturnsData = await fetchReturnsResponse.json();
-                
-                if (!fetchReturnsData.success) {
-                  throw new Error(fetchReturnsData.error || 'Failed to fetch returns');
-                }
-                
-                console.log(`[Client] ✅ Fetched returns for ${fetchReturnsData.returns.length} holdings`);
+                console.log(`[Client] ✅ Combined ${allReturns.length} returns from all sources`);
                 console.log(`[Client] Retrying analysis with precomputed returns...`);
                 
                 setAnalysisProgress(60);
@@ -360,7 +399,7 @@ export default function Home() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   ...requestData,
-                  precomputedReturns: fetchReturnsData.returns,
+                  precomputedReturns: allReturns,
                 }),
               });
               
