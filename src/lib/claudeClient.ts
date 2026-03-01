@@ -212,6 +212,15 @@ export async function analysePortfolioWithTools({
     while (iterationCount < maxIterations) {
       iterationCount++;
 
+      // Conditionally exclude return-fetching tools when precomputed returns are provided
+      // This prevents Claude from re-fetching data that was already fetched in the 2-call flow
+      const toolsToUse = hasPrecomputedReturns
+        ? SEARCH_TOOLS.filter(tool => 
+            tool.name !== 'search_holding_return' && 
+            tool.name !== 'search_fund_return_morningstar'
+          )
+        : SEARCH_TOOLS;
+
       // Call Claude API with tools
       response = await anthropic.messages.create({
         model: process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
@@ -219,7 +228,7 @@ export async function analysePortfolioWithTools({
         temperature,
         system: systemPrompt,
         messages,
-        tools: SEARCH_TOOLS as any, // Cast to any for compatibility
+        tools: toolsToUse as any, // Cast to any for compatibility
       });
 
       // Track token usage

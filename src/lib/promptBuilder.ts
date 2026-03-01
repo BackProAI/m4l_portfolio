@@ -154,7 +154,12 @@ CRITICAL: The following holdings already have return data fetched in a previous 
 
 DO NOT call search_holding_return or search_fund_return_morningstar tools for ANY holding whose name matches or closely resembles any name in this list (even with minor differences in spacing, punctuation, or class designation).
 
-SKIP tool calls for these holdings and use the precomputed data directly instead:
+IMPORTANT: When populating the holdingsPerformance JSON array, if a holding matches any name below, you MUST:
+1. Set performanceTimeframe to the timeframe value shown below
+2. Set totalReturnForTimeframe to the return percentage shown below
+3. DO NOT call any tools for that holding - the data is already fetched
+
+Precomputed return data:
 
 ${precomputedReturns.map(r => {
   if (r.totalReturn !== undefined && r.timeframe) {
@@ -172,7 +177,7 @@ ${precomputedReturns.map(r => {
   }
 }).join('\n')}
 
-When analyzing the portfolio, if you encounter a holding that matches any of the ${precomputedReturns.length} names above (even partially), use that precomputed return value. DO NOT make duplicate tool calls.
+Use these precomputed values directly in your JSON output. Match holding names flexibly (e.g., "AGL Energy Limited" matches "AGL Energy Ltd" or "AGL Energy").
 </precomputed_returns>
 ` : ''}
 
@@ -321,15 +326,19 @@ Instructions:
 - Include holdingsPerformance array ONLY if fund commentary was requested (fundCommentary = yes)
 - For each holding: classify type, provide description, extract performance/volatility data from documents
 - CRITICAL: For EVERY holding in holdingsPerformance array:
-  * performanceTimeframe: Populate based on source:
-    - From portfolio documents → use the reporting timeframe extracted in Step 1 (e.g., "1 Jul 2024 to 30 Jun 2025")
-    - From Yahoo Finance fallback → use the portfolio's timeframe (Step 1) since Yahoo returns data for exact dates requested
-    - From Morningstar fallback → EXTRACT the actual timeframe from tool response (pattern: "for the period X to Y")
+  * performanceTimeframe: Populate based on source in priority order:
+    1. PRECOMPUTED RETURNS (if provided above): Use the timeframe value from the matched precomputed return entry
+    2. Portfolio documents → use the reporting timeframe extracted in Step 1 (e.g., "1 Jul 2024 to 30 Jun 2025")
+    3. Yahoo Finance fallback → use the portfolio's timeframe (Step 1) since Yahoo returns data for exact dates requested
+    4. Morningstar fallback → EXTRACT the actual timeframe from tool response (pattern: "for the period X to Y")
     - Example: If Morningstar returns "for the period 1 Feb 2025 to 31 Jan 2026", use "1 Feb 2025 to 31 Jan 2026" as performanceTimeframe
-  * totalReturnForTimeframe: Populate from documents if available, OR use fallback tools per Step 3:
-    - If holding has ticker → call search_holding_return (Yahoo Finance)
-    - If holding is managed fund WITHOUT ticker → call search_fund_return_morningstar (Morningstar)
-    - If neither tool can provide data, omit totalReturnForTimeframe
+  * totalReturnForTimeframe: Populate from the following sources in priority order:
+    1. PRECOMPUTED RETURNS (if provided above): Match holding name to precomputed returns list and use the totalReturn value
+    2. Portfolio documents: If return data exists in the uploaded documents
+    3. Fallback tools (only if no precomputed returns): 
+       - If holding has ticker → call search_holding_return (Yahoo Finance)
+       - If holding is managed fund WITHOUT ticker → call search_fund_return_morningstar (Morningstar)
+    4. If no data available from any source, omit totalReturnForTimeframe
   * ALWAYS include performanceTimeframe even if totalReturnForTimeframe is omitted
 - In markdown narrative, when mentioning total return, always write it as: "Total return over the time period [exact timeframe from the statement]".
 - If performance or volatility data is not in documents, omit those arrays for that holding
