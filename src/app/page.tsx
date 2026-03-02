@@ -399,6 +399,50 @@ export default function Home() {
                 allReturns = results.flat();
                 
                 console.log(`[Client] ✅ Combined ${allReturns.length} returns from all sources`);
+                
+                // RETRY LOGIC: Identify items with errors (not "no data") and retry once
+                const itemsWithErrors = allReturns.filter((item: any) => item.error);
+                if (itemsWithErrors.length > 0) {
+                  console.log(`[Client] 🔄 ${itemsWithErrors.length} items had errors, retrying...`);
+                  setAnalysisProgressLabel(`Retrying ${itemsWithErrors.length} failed scrapes...`);
+                  
+                  // Map error items back to original tool objects
+                  const toolsToRetry = itemsWithErrors.map((item: any) => {
+                    // Find matching tool in original toolsToExecute array
+                    return event.toolsToExecute.find((tool: any) => {
+                      const toolHoldingName = tool.input.holding_name || tool.input.fund_name;
+                      return toolHoldingName === item.holdingName;
+                    });
+                  }).filter(Boolean); // Remove any nulls
+                  
+                  try {
+                    console.log(`[Client] 🔁 Retrying ${toolsToRetry.length} tools...`);
+                    const retryResponse = await fetch('/api/fetch-returns', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tools: toolsToRetry }),
+                    });
+                    
+                    if (retryResponse.ok) {
+                      const retryData = await retryResponse.json();
+                      if (retryData.success) {
+                        // Replace error items with retry results
+                        const errorHoldingNames = new Set(itemsWithErrors.map((item: any) => item.holdingName));
+                        allReturns = [
+                          ...allReturns.filter((item: any) => !errorHoldingNames.has(item.holdingName)),
+                          ...retryData.returns,
+                        ];
+                        
+                        const retrySuccessCount = retryData.returns.filter((r: any) => r.totalReturn !== undefined).length;
+                        console.log(`[Client] ✅ Retry complete: ${retrySuccessCount}/${retryData.returns.length} succeeded`);
+                      }
+                    }
+                  } catch (retryError) {
+                    console.warn(`[Client] ⚠️ Retry failed, continuing with original results:`, retryError);
+                    // Continue with original results (errors will be handled by Claude)
+                  }
+                }
+                
                 console.log(`[Client] Retrying analysis with precomputed returns...`);
                 
                 setAnalysisProgress(60);
