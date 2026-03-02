@@ -626,7 +626,14 @@ export async function searchFundReturnMorningstar(
             
             if (perfTabClicked) {
               console.log(`[Morningstar] Clicked Performance tab link`);
-              await new Promise(resolve => setTimeout(resolve, 3000));
+              // Wait for navigation to complete (up to 10s)
+              try {
+                await page.waitForNavigation({ timeout: 10000, waitUntil: 'networkidle2' });
+                console.log(`[Morningstar] Performance page navigation completed`);
+              } catch (navError) {
+                console.log(`[Morningstar] Navigation timeout, continuing anyway`);
+                await new Promise(resolve => setTimeout(resolve, 3000));
+              }
             }
           }
         } else {
@@ -653,7 +660,14 @@ export async function searchFundReturnMorningstar(
           
           if (perfTabClicked) {
             console.log(`[Morningstar] Clicked Performance tab link`);
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            // Wait for navigation to complete (up to 10s)
+            try {
+              await page.waitForNavigation({ timeout: 10000, waitUntil: 'networkidle2' });
+              console.log(`[Morningstar] Performance page navigation completed`);
+            } catch (navError) {
+              console.log(`[Morningstar] Navigation timeout, continuing anyway`);
+              await new Promise(resolve => setTimeout(resolve, 3000));
+            }
           }
         }
       }
