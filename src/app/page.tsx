@@ -296,22 +296,35 @@ export default function Home() {
             
             // Special handling for TOO_MANY_HOLDINGS error - retry with 2-call flow
             if (event.error === 'TOO_MANY_HOLDINGS' && event.toolsToExecute) {
-              console.log('[Client] 🔄 Detected large portfolio, switching to 2-call flow...');
+              console.log('[Client] 🔄 Detected large portfolio, switching to multi-call flow...');
               console.log(`[Client] Fetching returns for ${event.toolsToExecute.length} holdings...`);
               
               // Split tools into Yahoo Finance (fast) and Morningstar (slow) for parallel execution
               const yahooFinanceTools = event.toolsToExecute.filter((tool: any) => tool.name === 'search_holding_return');
               const morningstarTools = event.toolsToExecute.filter((tool: any) => tool.name === 'search_fund_return_morningstar');
               
-              console.log(`[Client] Split: ${yahooFinanceTools.length} Yahoo Finance, ${morningstarTools.length} Morningstar`);
+              // OPTIMIZATION: Further split Morningstar funds into batches of 6
+              // With concurrency=2, each batch takes ~90s (3 pairs × 30s), avoiding 300s timeout
+              const MORNINGSTAR_BATCH_SIZE = 6;
+              const morningstarBatches: any[][] = [];
+              for (let i = 0; i < morningstarTools.length; i += MORNINGSTAR_BATCH_SIZE) {
+                morningstarBatches.push(morningstarTools.slice(i, i + MORNINGSTAR_BATCH_SIZE));
+              }
+              
+              console.log(`[Client] Split: ${yahooFinanceTools.length} Yahoo Finance, ${morningstarTools.length} Morningstar (${morningstarBatches.length} batches)`);
               
               // Show initial progress update
               setAnalysisProgress(10);
-              setAnalysisProgressLabel(`Fetching returns: ${yahooFinanceTools.length} stocks + ${morningstarTools.length} funds...`);
+              setAnalysisProgressLabel(`Fetching returns: ${yahooFinanceTools.length} stocks + ${morningstarTools.length} funds (${morningstarBatches.length} parallel batches)...`);
               
               // Simulate progress during fetch-returns phase (10% -> 55%)
               // Yahoo is fast (~1-2s each), Morningstar is slow (~5-10s each)
-              const estimatedSeconds = Math.min(yahooFinanceTools.length * 2 + morningstarTools.length * 8, 240);
+              // With batching, estimate based on slowest batch (since they run in parallel)
+              const estimatedYahooTime = yahooFinanceTools.length * 2;
+              const estimatedMorningstarTime = morningstarBatches.length > 0 
+                ? Math.max(...morningstarBatches.map(batch => batch.length * 8))
+                : 0;
+              const estimatedSeconds = Math.min(Math.max(estimatedYahooTime, estimatedMorningstarTime), 240);
               const progressInterval = setInterval(() => {
                 setAnalysisProgress((prev) => {
                   if (prev === undefined || prev >= 55) return prev;
@@ -323,7 +336,7 @@ export default function Home() {
               let allReturns: any[] = [];
               
               try {
-                // Call both APIs in parallel (each has separate 300s timeout)
+                // Call all APIs in parallel (each has separate 300s timeout)
                 const promises = [];
                 
                 if (yahooFinanceTools.length > 0) {
@@ -348,33 +361,34 @@ export default function Home() {
                   );
                 }
                 
-                if (morningstarTools.length > 0) {
-                  console.log(`[Client] 🌟 Starting Morningstar fetch (${morningstarTools.length} funds)...`);
+                // Create a separate API call for each Morningstar batch
+                morningstarBatches.forEach((batch, index) => {
+                  console.log(`[Client] 🌟 Starting Morningstar batch ${index + 1}/${morningstarBatches.length} (${batch.length} funds)...`);
                   promises.push(
                     fetch('/api/fetch-returns', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ tools: morningstarTools }),
+                      body: JSON.stringify({ tools: batch }),
                     }).then(async (response) => {
                       if (!response.ok) {
                         // Check for timeout error (504 Gateway Timeout)
                         if (response.status === 504) {
-                          throw new Error(`Morningstar: Portfolio too large (${morningstarTools.length} funds exceeded 300s limit). Try reducing managed funds.`);
+                          throw new Error(`Morningstar batch ${index + 1}: Timed out after 300s (${batch.length} funds). Try reducing portfolio size.`);
                         }
                         const errorData = await response.json().catch(() => null);
-                        throw new Error(`Morningstar: ${errorData?.error || `HTTP ${response.status}`}`);
+                        throw new Error(`Morningstar batch ${index + 1}: ${errorData?.error || `HTTP ${response.status}`}`);
                       }
                       const data = await response.json();
                       if (!data.success) {
-                        throw new Error(`Morningstar: ${data.error || 'Unknown error'}`);
+                        throw new Error(`Morningstar batch ${index + 1}: ${data.error || 'Unknown error'}`);
                       }
-                      console.log(`[Client] ✅ Morningstar complete: ${data.returns.length} returns`);
+                      console.log(`[Client] ✅ Morningstar batch ${index + 1} complete: ${data.returns.length} returns`);
                       return data.returns;
                     })
                   );
-                }
+                });
                 
-                // Wait for both to complete
+                // Wait for all batches to complete (Yahoo + all Morningstar batches)
                 const results = await Promise.all(promises);
                 
                 // Stop progress simulation
