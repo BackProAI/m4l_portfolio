@@ -68,6 +68,19 @@ PERFORMANCE DATA EXTRACTION:
 - Store this timeframe - it will be used for ALL holdings
 
 **STEP 2 - EXTRACT HOLDING-SPECIFIC DATA**:
+CRITICAL - CHECK FOR RETURNS DATA FIRST:
+- Search the portfolio documents carefully for Performance sections, Performance tables, or Returns data
+- Common locations: "Performance" pages, tables with "Return (%)" columns, "Growth" sections
+- Common column headers: "Return (%)", "Total Return", "Performance", "Growth (%)", "1-Year Return"
+- EXAMPLE - If you see a performance table showing:
+    Vanguard Growth Index Fund with Return (%) of 8.17%
+    Schroder Real Return Fund with Return (%) of 11.79%
+  Then extract totalReturnForTimeframe = 8.17 for Vanguard, and 11.79 for Schroder.
+  DO NOT call search_holding_return or search_fund_return_morningstar for these holdings!
+- If you find return data for a holding in ANY format (percentage, dollar growth, etc.):
+  * Extract it as totalReturnForTimeframe
+  * Set performanceTimeframe to the period shown in the statement (from Step 1)
+  * DO NOT call any search tools for that holding
 - Extract historical performance data (annual returns) for each holding from the portfolio documents
 - Extract volatility data (standard deviation) for each holding if available
 - Extract ticker symbols where present:
@@ -77,7 +90,7 @@ PERFORMANCE DATA EXTRACTION:
 - Present performance and volatility data year by year as found in documents
 
 **STEP 3 - FALLBACK FOR MISSING RETURNS (CRITICAL)**:
-For EVERY holding that lacks return data in the documents:
+ONLY for holdings that completely lack return data in the documents (no Performance section, no Return column, no growth data):
 1. Check if it has a ticker symbol
    - Direct shares: Always have tickers (e.g., CBA, BHP, ANZ)
    - Securities (ETFs, LICs): Usually have tickers (e.g., VAS, MVW, LEND, VACF)
