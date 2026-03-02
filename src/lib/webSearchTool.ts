@@ -834,12 +834,33 @@ export async function searchFundReturnMorningstar(
       console.log(`[Morningstar] No "as of" date found, using portfolio timeframe: ${timeframePeriod}`);
     }
 
-    // Extract 1-year return from "Investor Return %" row
+    // Extract 1-year return from "Investment" row
     const investorReturn = await page.evaluate(() => {
       const tables = document.querySelectorAll('[class*="mds-table"]');
       console.log(`[Morningstar Extract] Found ${tables.length} tables`);
 
       for (const table of tables) {
+        // First, find the header row to determine which column is "1-Year"
+        const headerRow = table.querySelector('thead tr');
+        let oneYearColumnIndex = -1;
+        
+        if (headerRow) {
+          const headerCells = headerRow.querySelectorAll('th');
+          headerCells.forEach((cell, index) => {
+            const headerText = cell.textContent?.trim();
+            // Match "1-Year", "1 Year", "1-Yr", "1 Yr" (case insensitive)
+            if (headerText && /1[- ]?ye?a?r/i.test(headerText)) {
+              oneYearColumnIndex = index;
+              console.log(`[Morningstar Extract] Found "1-Year" column at index ${index}: ${headerText}`);
+            }
+          });
+        }
+        
+        if (oneYearColumnIndex === -1) {
+          console.log(`[Morningstar Extract] Could not find "1-Year" column header`);
+          continue;
+        }
+
         const rows = table.querySelectorAll('tbody tr');
         console.log(`[Morningstar Extract] Table has ${rows.length} rows`);
 
@@ -847,24 +868,26 @@ export async function searchFundReturnMorningstar(
           const headerCell = row.querySelector('th');
           const headerText = headerCell?.textContent?.trim();
           
-          if (headerText?.includes('Investor Return')) {
-            console.log(`[Morningstar Extract] Found "Investor Return" row: ${headerText}`);
+          if (headerText?.includes('Investment')) {
+            console.log(`[Morningstar Extract] Found "Investment" row: ${headerText}`);
             
-            // Get the 1-Year column (4th data cell, index 3)
+            // Get all data cells and extract the one at oneYearColumnIndex
+            // Note: th is column 0, so td index = header index - 1
             const cells = row.querySelectorAll('td');
             console.log(`[Morningstar Extract] Row has ${cells.length} cells`);
             
-            if (cells.length >= 4) {
-              const oneYearValue = cells[3].textContent?.trim();
-              console.log(`[Morningstar Extract] Extracted 1-year value: ${oneYearValue}`);
+            const tdIndex = oneYearColumnIndex - 1; // Subtract 1 because first column is <th>
+            if (tdIndex >= 0 && tdIndex < cells.length) {
+              const oneYearValue = cells[tdIndex].textContent?.trim();
+              console.log(`[Morningstar Extract] Extracted 1-year value from td[${tdIndex}]: ${oneYearValue}`);
               return oneYearValue;
             } else {
-              console.log(`[Morningstar Extract] Not enough cells in row`);
+              console.log(`[Morningstar Extract] Column index ${tdIndex} out of range (${cells.length} cells)`);
             }
           }
         }
       }
-      console.log(`[Morningstar Extract] No "Investor Return" row found`);
+      console.log(`[Morningstar Extract] No "Investment" row found`);
       return null;
     });
     
