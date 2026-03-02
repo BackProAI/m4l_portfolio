@@ -90,12 +90,24 @@ export async function POST(request: NextRequest) {
           
           console.log(`[fetch-returns] Parsed ${tool.input.holding_name || tool.input.fund_name}: return=${totalReturn}, timeframe=${timeframe}`);
           
+          // Check if result indicates an error (vs legitimately missing data)
+          // Error indicators: "Failed to retrieve", "Error executing", "Unable to"
+          // Valid "no data" messages: "No.*data available", "not found"
+          const isError = totalReturn === undefined && (
+            result.includes('Failed to retrieve') ||
+            result.includes('Error executing') ||
+            result.includes('Unable to parse') ||
+            result.includes('timeout') ||
+            result.includes('timed out')
+          );
+          
           return {
             holdingName: String(tool.input.holding_name || tool.input.fund_name || ''),
             ticker: tool.input.ticker as string | undefined,
             fundManager: tool.input.fund_manager as string | undefined,
             totalReturn,
             timeframe,
+            ...(isError && { error: result.split('\n')[0] }), // Add error field if it's an actual error
           };
         } catch (error) {
           console.error(`[fetch-returns] Tool ${tool.name} failed:`, error);
