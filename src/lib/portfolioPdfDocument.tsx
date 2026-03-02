@@ -889,7 +889,7 @@ export const PortfolioPdfDocument = ({
 
         {/* Portfolio Value */}
         <View style={styles.portfolioValueBox}>
-          <Text style={styles.portfolioValueLabel}>Total Portfolio Value</Text>
+          <Text style={styles.portfolioValueLabel}>Total Portfolio Value (Market Value)</Text>
           <Text style={styles.portfolioValue}>
             ${chartData.portfolioValue.toLocaleString()}
           </Text>

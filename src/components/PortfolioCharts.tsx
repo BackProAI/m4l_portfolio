@@ -35,7 +35,7 @@ export function PortfolioCharts({ chartData, holdingsPerformance }: PortfolioCha
       <Card variant="elevated">
         <CardContent className="p-6">
           <div className="text-center">
-            <p className="text-sm text-neutral-500 mb-1">Total Portfolio Value</p>
+            <p className="text-sm text-neutral-500 mb-1">Total Portfolio Value (Market Value)</p>
             <p className="text-4xl font-bold text-primary">
               ${chartData.portfolioValue.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </p>

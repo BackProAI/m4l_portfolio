@@ -314,6 +314,7 @@ CRITICAL: You must respond with ONLY valid JSON in this EXACT format (no markdow
 
 Instructions:
 - Extract portfolio value and asset allocation from documents
+- CRITICAL: Use Market Value column for portfolio totals and holding values (NOT cost/book value). If no Market Value column is found, use any column labeled with 'Total' in the header.
 - Determine current risk profile based on asset allocation
 - Extract ticker symbols for ALL holdings where available (direct shares and securities/ETFs especially)
 - Do NOT include fees or costs in the output
