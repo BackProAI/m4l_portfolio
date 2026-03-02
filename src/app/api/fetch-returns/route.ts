@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     error?: string;
   }> = [];
 
-  const CONCURRENCY = 2; // Concurrency of 2 balances speed vs. ETXTBSY errors
+  const CONCURRENCY = 1; // Reduced to 1 to avoid Morningstar rate limiting (slower but more reliable)
   const STAGGER_DELAY_MS = 1500; // 1.5s delay between browser launches to reduce resource contention
 
   console.log(`[fetch-returns] Executing ${tools.length} return-fetching tools with concurrency ${CONCURRENCY}`);

@@ -326,19 +326,19 @@ Instructions:
 - Include holdingsPerformance array ONLY if fund commentary was requested (fundCommentary = yes)
 - For each holding: classify type, provide description, extract performance/volatility data from documents
 - CRITICAL: For EVERY holding in holdingsPerformance array:
-  * performanceTimeframe: Populate based on source in priority order:
-    1. PRECOMPUTED RETURNS (if provided above): Use the timeframe value from the matched precomputed return entry
-    2. Portfolio documents → use the reporting timeframe extracted in Step 1 (e.g., "1 Jul 2024 to 30 Jun 2025")
-    3. Yahoo Finance fallback → use the portfolio's timeframe (Step 1) since Yahoo returns data for exact dates requested
-    4. Morningstar fallback → EXTRACT the actual timeframe from tool response (pattern: "for the period X to Y")
+  * performanceTimeframe: Populate based on data source:
+    1. Precomputed returns (if provided in the precomputed_returns section above): Use the timeframe value
+    2. Portfolio documents: Use the reporting timeframe extracted in Step 1 (e.g., "1 Jul 2024 to 30 Jun 2025")
+    3. Yahoo Finance tool: Use the portfolio's timeframe (Step 1) since Yahoo returns data for exact dates
+    4. Morningstar tool: Extract the actual timeframe from tool response (pattern: "for the period X to Y")
     - Example: If Morningstar returns "for the period 1 Feb 2025 to 31 Jan 2026", use "1 Feb 2025 to 31 Jan 2026" as performanceTimeframe
-  * totalReturnForTimeframe: Populate from the following sources in priority order:
-    1. PRECOMPUTED RETURNS (if provided above): Match holding name to precomputed returns list and use the totalReturn value
-    2. Portfolio documents: If return data exists in the uploaded documents
-    3. Fallback tools (only if no precomputed returns): 
-       - If holding has ticker → call search_holding_return (Yahoo Finance)
-       - If holding is managed fund WITHOUT ticker → call search_fund_return_morningstar (Morningstar)
-    4. If no data available from any source, omit totalReturnForTimeframe
+  * totalReturnForTimeframe: Populate from sources in priority order:
+    1. Precomputed returns (if provided in the precomputed_returns section above): Use the totalReturn value
+    2. Portfolio documents: Extract return data if present in uploaded documents
+    3. Tool fallback when data is missing:
+       - Holdings with tickers (stocks/ETFs) → call search_holding_return (Yahoo Finance)
+       - Managed funds without tickers → call search_fund_return_morningstar (Morningstar)
+    4. If no source has data, omit totalReturnForTimeframe
   * ALWAYS include performanceTimeframe even if totalReturnForTimeframe is omitted
 - In markdown narrative, when mentioning total return, always write it as: "Total return over the time period [exact timeframe from the statement]".
 - If performance or volatility data is not in documents, omit those arrays for that holding

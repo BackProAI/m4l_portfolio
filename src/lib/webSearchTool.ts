@@ -626,14 +626,18 @@ export async function searchFundReturnMorningstar(
             
             if (perfTabClicked) {
               console.log(`[Morningstar] Clicked Performance tab link`);
-              // Wait for navigation to complete (up to 10s)
+              // Wait for navigation to complete (up to 5s for DOM to load)
               try {
-                await page.waitForNavigation({ timeout: 10000, waitUntil: 'networkidle2' });
+                await page.waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' });
                 console.log(`[Morningstar] Performance page navigation completed`);
               } catch (navError) {
                 console.log(`[Morningstar] Navigation timeout, continuing anyway`);
-                await new Promise(resolve => setTimeout(resolve, 3000));
               }
+              // Additional wait for page to stabilize
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            } else {
+              console.log(`[Morningstar] ERROR: Could not find Performance tab link`);
+              throw new Error('Performance tab not found after modal redirect');
             }
           }
         } else {
@@ -660,14 +664,18 @@ export async function searchFundReturnMorningstar(
           
           if (perfTabClicked) {
             console.log(`[Morningstar] Clicked Performance tab link`);
-            // Wait for navigation to complete (up to 10s)
+            // Wait for navigation to complete (up to 5s for DOM to load)
             try {
-              await page.waitForNavigation({ timeout: 10000, waitUntil: 'networkidle2' });
+              await page.waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' });
               console.log(`[Morningstar] Performance page navigation completed`);
             } catch (navError) {
               console.log(`[Morningstar] Navigation timeout, continuing anyway`);
-              await new Promise(resolve => setTimeout(resolve, 3000));
             }
+            // Additional wait for page to stabilize
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else {
+            console.log(`[Morningstar] ERROR: Could not find Performance tab link`);
+            throw new Error('Performance tab not found - page structure may have changed');
           }
         }
       }

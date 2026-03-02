@@ -304,7 +304,8 @@ export default function Home() {
               const morningstarTools = event.toolsToExecute.filter((tool: any) => tool.name === 'search_fund_return_morningstar');
               
               // OPTIMIZATION: Further split Morningstar funds into batches of 6
-              // With concurrency=2, each batch takes ~90s (3 pairs × 30s), avoiding 300s timeout
+              // With concurrency=1, each batch takes ~180-270s (6 sequential funds × 30-45s), staying under 300s timeout
+              // Reduced from concurrency=2 to avoid Morningstar rate limiting
               const MORNINGSTAR_BATCH_SIZE = 6;
               const morningstarBatches: any[][] = [];
               for (let i = 0; i < morningstarTools.length; i += MORNINGSTAR_BATCH_SIZE) {
@@ -318,11 +319,11 @@ export default function Home() {
               setAnalysisProgressLabel(`Fetching returns: ${yahooFinanceTools.length} stocks + ${morningstarTools.length} funds (${morningstarBatches.length} parallel batches)...`);
               
               // Simulate progress during fetch-returns phase (10% -> 55%)
-              // Yahoo is fast (~1-2s each), Morningstar is slow (~5-10s each)
+              // Yahoo is fast (~1-2s each), Morningstar is slow (~30-45s each with concurrency=1)
               // With batching, estimate based on slowest batch (since they run in parallel)
               const estimatedYahooTime = yahooFinanceTools.length * 2;
               const estimatedMorningstarTime = morningstarBatches.length > 0 
-                ? Math.max(...morningstarBatches.map(batch => batch.length * 8))
+                ? Math.max(...morningstarBatches.map(batch => batch.length * 35))  // 35s avg per fund
                 : 0;
               const estimatedSeconds = Math.min(Math.max(estimatedYahooTime, estimatedMorningstarTime), 240);
               const progressInterval = setInterval(() => {
