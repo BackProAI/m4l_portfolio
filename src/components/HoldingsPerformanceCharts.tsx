@@ -295,10 +295,10 @@ function HoldingsTable({ holdings }: HoldingsTableProps) {
                   {holding.description}
                 </td>
                 <td className="p-3 text-right font-medium text-neutral-900">
-                  ${holding.currentValue.toLocaleString('en-AU')}
+                  ${(holding.currentValue ?? 0).toLocaleString('en-AU')}
                 </td>
                 <td className="p-3 text-right text-neutral-700">
-                  {holding.percentage.toFixed(1)}%
+                  {(holding.percentage ?? 0).toFixed(1)}%
                 </td>
                 <td className={`p-3 text-right font-medium ${displayReturn !== null && displayReturn >= 0 ? 'text-success' : 'text-error'}`}>
                   {displayReturn !== null ? `${displayReturn.toFixed(2)}%` : 'N/A'}
@@ -352,13 +352,13 @@ function HoldingDetailCard({ holding, color }: HoldingDetailCardProps) {
             <div>
               <p className="text-xs text-neutral-500 mb-1">Current Value</p>
               <p className="text-lg font-semibold text-neutral-900">
-                ${holding.currentValue.toLocaleString('en-AU')}
+                ${(holding.currentValue ?? 0).toLocaleString('en-AU')}
               </p>
             </div>
             <div>
               <p className="text-xs text-neutral-500 mb-1">Portfolio Weight</p>
               <p className="text-lg font-semibold text-neutral-900">
-                {holding.percentage.toFixed(1)}%
+                {(holding.percentage ?? 0).toFixed(1)}%
               </p>
             </div>
             <div>

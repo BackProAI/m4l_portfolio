@@ -64,8 +64,8 @@ export function PortfolioRiskSummary({ data }: PortfolioRiskSummaryProps) {
                 {assetClasses.map((asset) => (
                   <tr key={asset.name} className="border-b border-neutral-200">
                     <td className="p-3 text-neutral-800 font-medium">{asset.name}</td>
-                    <td className="p-3 text-right text-neutral-700">{asset.weightPercentage.toFixed(2)}%</td>
-                    <td className="p-3 text-right text-neutral-700">${asset.value.toLocaleString('en-AU')}</td>
+                    <td className="p-3 text-right text-neutral-700">{(asset.weightPercentage ?? 0).toFixed(2)}%</td>
+                    <td className="p-3 text-right text-neutral-700">${(asset.value ?? 0).toLocaleString('en-AU')}</td>
                     <td className="p-3 text-right text-neutral-700">{formatReturn(asset.expectedReturn)}</td>
                     <td className="p-3 text-right text-neutral-700">{formatPercent(asset.standardDeviation)}</td>
                     <td className="p-3 text-right text-neutral-700">{asset.riskContribution !== undefined ? asset.riskContribution.toFixed(4) : 'N/A'}</td>
