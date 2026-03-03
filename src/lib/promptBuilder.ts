@@ -138,8 +138,28 @@ ONLY for holdings that completely lack return data in the documents (no Performa
 
 **IMPORTANT**: In markdown, use pattern: "Total return over the time period [timeframe]"
 
+ASSET ALLOCATION - LOOK-THROUGH CLASSIFICATION (CRITICAL):
+- The asset allocation in the JSON output MUST reflect the TRUE underlying exposure of each holding, NOT just a single-class label.
+- For EVERY managed fund, ETF, or diversified/multi-asset holding:
+  * Call the search_fund_asset_allocation tool to get the underlying asset class breakdown (stocks %, bonds %, cash %, etc.)
+  * Use the returned data to SPLIT the holding's dollar value proportionally across the asset classes it actually invests in
+  * Map the high-level categories to the taxonomy below using the fund name, category, and top holdings as context:
+    - Stocks/Equities → split into Australian Shares and International Shares based on the fund's geographic focus
+    - Bonds/Fixed Interest → split into Australian Fixed Interest and International Fixed Interest based on the fund's focus
+    - Cash → Domestic Cash
+    - Other/Alternatives → Alternatives
+    - Property/Real Estate → Australian Property or International Property based on geographic focus
+  * Example: VDIF (Vanguard Diversified Index Fund) with $600K total value and allocation of Stocks 60%, Bonds 35%, Cash 5%:
+    - If the fund is known to have roughly 50/50 Aus/International equity split: Australian Shares = $180K, International Shares = $180K
+    - If bonds are mixed: Australian Fixed Interest = $105K, International Fixed Interest = $105K
+    - Cash = $30K
+- For single-asset-class holdings (e.g., "BHP Group" → Australian Shares, "US Government Bonds" → International Fixed Interest), assign 100% to that class
+- For direct shares: assign to Australian Shares (if ASX-listed) or International Shares (if overseas)
+- Aggregate ALL holdings' split contributions into the final assetAllocation array
+- The asset class taxonomy: Alternatives, Australian Fixed Interest, Australian Property, Australian Shares, Domestic Cash, International Cash, International Fixed Interest, International Property, International Shares
+
 ASSET CLASS & PORTFOLIO RISK REQUIREMENTS:
-${profile.includeRiskSummary ? `- Map every holding into the investor-profile asset class taxonomy: Alternatives, Australian Fixed Interest, Australian Property, Australian Shares, Domestic Cash, International Cash, International Fixed Interest, International Property, International Shares. If a holding spans multiple classes, assign the dominant exposure.
+${profile.includeRiskSummary ? `- Use the look-through asset class weights (from the split above) for ALL risk calculations.
 - CRITICAL OPTIMIZATION: Use the get_portfolio_risk_data batch tool to retrieve ALL data in ONE call. Pass an array of all asset classes present in the portfolio (e.g., ['Australian Shares', 'International Shares', 'Australian Fixed Interest']). This single call returns:
   1. Expected annual returns for all classes
   2. Standard deviations (volatility) for all classes
@@ -153,7 +173,8 @@ ${profile.includeRiskSummary ? `- Map every holding into the investor-profile as
 - Weight handling rule: if allocations are expressed as percentages (for example 26), convert to decimals (0.26) before calculations.
 - Keep portfolioVariance and riskContribution as variance-scale values, and portfolioStandardDeviation as a decimal standard deviation (for example 0.08 for 8%). Provide variance contributions per asset class.
 - If you cannot obtain enough data to calculate the portfolio risk metrics, omit the portfolioRisk block entirely (do NOT fabricate values).
-- Include "Static Asset Class Data - Vanguard Capital Market Assumptions methodology" in the sources array.` : `- Do NOT include a portfolioRisk block in the JSON output. Do NOT call get_portfolio_risk_data, search_asset_class_metrics or search_asset_class_correlation. The user has not requested a Portfolio Risk Summary.`}`
+- Include "Static Asset Class Data - Vanguard Capital Market Assumptions methodology" in the sources array.` : `- Use the look-through asset class weights (from the split above) for the assetAllocation array.
+- Do NOT include a portfolioRisk block in the JSON output. Do NOT call get_portfolio_risk_data, search_asset_class_metrics or search_asset_class_correlation. The user has not requested a Portfolio Risk Summary.`}`
 
   const diversificationSectionNumber = 5;
   const stressTestSectionNumber = 6;

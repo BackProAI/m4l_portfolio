@@ -227,7 +227,7 @@ const AssetAllocationChart = ({ data }: { data: ChartData['assetAllocation'] }) 
         <View style={{ width: 300 }}>
           <Svg width={300} height={240}>
             {data.map((item, index) => {
-              const sliceAngle = (item.percentage / 100) * 360;
+              const sliceAngle = ((item.percentage ?? 0) / 100) * 360;
               const path = getPieSlicePath(
                 centerX,
                 centerY,
@@ -248,7 +248,7 @@ const AssetAllocationChart = ({ data }: { data: ChartData['assetAllocation'] }) 
                     d={path}
                     fill={CHART_COLORS[index % CHART_COLORS.length]}
                   />
-                  {item.percentage >= 5 && (
+                  {(item.percentage ?? 0) >= 5 && (
                     <Text
                       x={labelX}
                       y={labelY}
@@ -259,7 +259,7 @@ const AssetAllocationChart = ({ data }: { data: ChartData['assetAllocation'] }) 
                         textAnchor: 'middle',
                       }}
                     >
-                      {item.percentage}%
+                      {item.percentage ?? 0}%
                     </Text>
                   )}
                 </React.Fragment>
@@ -280,7 +280,7 @@ const AssetAllocationChart = ({ data }: { data: ChartData['assetAllocation'] }) 
               />
               <Text style={styles.legendText}>{item.name}</Text>
               <Text style={styles.legendValue}>
-                ${item.value.toLocaleString()}
+                ${(item.value ?? 0).toLocaleString()}
               </Text>
             </View>
           ))}
@@ -393,8 +393,8 @@ const PortfolioRiskSection = ({ data }: { data: NonNullable<ChartData['portfolio
             }}
           >
             <Text style={{ flex: 2.2, fontSize: 9, color: COLORS.gray800 }}>{asset.name}</Text>
-            <Text style={{ flex: 0.9, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>{asset.weightPercentage.toFixed(2)}%</Text>
-            <Text style={{ flex: 1.1, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>${asset.value.toLocaleString()}</Text>
+            <Text style={{ flex: 0.9, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>{(asset.weightPercentage ?? 0).toFixed(2)}%</Text>
+            <Text style={{ flex: 1.1, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>${(asset.value ?? 0).toLocaleString()}</Text>
             <Text style={{ flex: 0.9, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>{formatPercent(asset.expectedReturn)}</Text>
             <Text style={{ flex: 0.8, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>{formatPercent(asset.standardDeviation)}</Text>
             <Text style={{ flex: 1.0, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>
@@ -468,10 +468,10 @@ const HoldingsOverviewTable = ({ holdings }: { holdings: HoldingPerformance[] })
           {holding.description.length > 60 ? holding.description.substring(0, 57) + '...' : holding.description}
         </Text>
         <Text style={{ flex: 2, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>
-          ${holding.currentValue.toLocaleString('en-AU')}
+          ${(holding.currentValue ?? 0).toLocaleString('en-AU')}
         </Text>
         <Text style={{ flex: 1.5, fontSize: 9, color: COLORS.gray800, textAlign: 'right' }}>
-          {holding.percentage.toFixed(1)}%
+          {(holding.percentage ?? 0).toFixed(1)}%
         </Text>
         <Text style={{ flex: 1.5, fontSize: 9, color: displayReturn !== null ? (displayReturn >= 0 ? COLORS.success : COLORS.red) : COLORS.gray400, textAlign: 'right', fontWeight: 'bold' }}>
           {displayReturn !== null ? `${displayReturn.toFixed(2)}%` : 'N/A'}
@@ -569,13 +569,13 @@ const HoldingsPerformanceSection = ({ holdings }: { holdings: HoldingPerformance
             <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 8, borderRadius: 4 }}>
               <Text style={{ fontSize: 8, color: COLORS.gray600, marginBottom: 2 }}>Current Value</Text>
               <Text style={{ fontSize: 12, fontWeight: 'bold', color: COLORS.gray800 }}>
-                ${holding.currentValue.toLocaleString('en-AU')}
+                ${(holding.currentValue ?? 0).toLocaleString('en-AU')}
               </Text>
             </View>
             <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 8, borderRadius: 4 }}>
               <Text style={{ fontSize: 8, color: COLORS.gray600, marginBottom: 2 }}>Portfolio Weight</Text>
               <Text style={{ fontSize: 12, fontWeight: 'bold', color: COLORS.gray800 }}>
-                {holding.percentage.toFixed(1)}%
+                {(holding.percentage ?? 0).toFixed(1)}%
               </Text>
             </View>
             <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 8, borderRadius: 4 }}>
@@ -719,26 +719,28 @@ const HistoricalPerformanceChart = ({ holdings }: { holdings: HoldingPerformance
         {/* Bars */}
         {data.map((yearData, yearIndex) => {
           const xBase = marginLeft + yearIndex * barGroupWidth;
-          return holdings.map((holding, holdingIndex) => {
-            const value = yearData[holding.name] as number | null;
-            if (value === null) return null;
+          return holdings
+            .map((holding, holdingIndex) => {
+              const value = yearData[holding.name] as number | null;
+              if (value === null) return null;
 
-            const barHeight = Math.abs((value - 0) / yRange) * plotHeight;
-            const zeroY = marginTop + plotHeight - ((0 - yMin) / yRange) * plotHeight;
-            const barX = xBase + holdingIndex * (barWidth + 2) + barGroupWidth / 2 - (holdings.length * (barWidth + 2)) / 2;
-            const barY = value >= 0 ? zeroY - barHeight : zeroY;
+              const barHeight = Math.abs((value - 0) / yRange) * plotHeight;
+              const zeroY = marginTop + plotHeight - ((0 - yMin) / yRange) * plotHeight;
+              const barX = xBase + holdingIndex * (barWidth + 2) + barGroupWidth / 2 - (holdings.length * (barWidth + 2)) / 2;
+              const barY = value >= 0 ? zeroY - barHeight : zeroY;
 
-            return (
-              <Rect
-                key={`${yearIndex}-${holdingIndex}`}
-                x={barX}
-                y={barY}
-                width={barWidth}
-                height={Math.max(barHeight, 1)}
-                fill={CHART_COLORS[holdingIndex % CHART_COLORS.length]}
-              />
-            );
-          });
+              return (
+                <Rect
+                  key={`${yearIndex}-${holdingIndex}`}
+                  x={barX}
+                  y={barY}
+                  width={barWidth}
+                  height={Math.max(barHeight, 1)}
+                  fill={CHART_COLORS[holdingIndex % CHART_COLORS.length]}
+                />
+              );
+            })
+            .filter((el): el is React.ReactElement => el !== null);
         })}
 
         {/* X-Axis Labels (Years) */}
@@ -891,7 +893,7 @@ export const PortfolioPdfDocument = ({
         <View style={styles.portfolioValueBox}>
           <Text style={styles.portfolioValueLabel}>Total Portfolio Value (Market Value)</Text>
           <Text style={styles.portfolioValue}>
-            ${chartData.portfolioValue.toLocaleString()}
+            ${(chartData.portfolioValue ?? 0).toLocaleString()}
           </Text>
         </View>
 

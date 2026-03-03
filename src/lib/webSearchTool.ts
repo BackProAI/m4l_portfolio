@@ -968,6 +968,132 @@ export async function searchFundReturnMorningstar(
   }
 }
 
+/**
+ * Search for a fund/ETF's underlying asset class allocation breakdown
+ * Uses Yahoo Finance quoteSummary for holdings with tickers, Brave Search for others
+ *
+ * @param fundName - Name of the fund/ETF
+ * @param ticker - Optional ticker symbol (e.g., "VDIF.AX")
+ * @param fundManager - Optional fund management company name
+ * @returns Object with asset allocation breakdown and sources
+ */
+export async function searchFundAssetAllocation(
+  fundName: string,
+  ticker?: string,
+  fundManager?: string
+): Promise<SearchResult> {
+  // Try Yahoo Finance first if ticker is available
+  if (ticker) {
+    try {
+      console.log(`[Asset Allocation] Trying Yahoo Finance quoteSummary for ${ticker}`);
+      // @ts-ignore - Yahoo Finance types may not be fully complete
+      const result = await yahooFinance.quoteSummary(ticker, { modules: ['topHoldings', 'fundProfile'] });
+
+      const topHoldings = result.topHoldings;
+      if (topHoldings) {
+        const allocations: string[] = [];
+        const stockPct = topHoldings.stockPosition != null ? (topHoldings.stockPosition * 100) : null;
+        const bondPct = topHoldings.bondPosition != null ? (topHoldings.bondPosition * 100) : null;
+        const cashPct = topHoldings.cashPosition != null ? (topHoldings.cashPosition * 100) : null;
+        const otherPct = topHoldings.otherPosition != null ? (topHoldings.otherPosition * 100) : null;
+
+        if (stockPct != null && stockPct > 0) allocations.push(`Stocks/Equities: ${stockPct.toFixed(1)}%`);
+        if (bondPct != null && bondPct > 0) allocations.push(`Bonds/Fixed Interest: ${bondPct.toFixed(1)}%`);
+        if (cashPct != null && cashPct > 0) allocations.push(`Cash: ${cashPct.toFixed(1)}%`);
+        if (otherPct != null && otherPct > 0) allocations.push(`Other/Alternatives: ${otherPct.toFixed(1)}%`);
+
+        // Get top holdings for additional context
+        let holdingsContext = '';
+        if (topHoldings.holdings && topHoldings.holdings.length > 0) {
+          const topNames = topHoldings.holdings
+            .slice(0, 10)
+            .map((h: any) => `${h.holdingName || h.symbol} (${((h.holdingPercent || 0) * 100).toFixed(1)}%)`)
+            .join(', ');
+          holdingsContext = ` Top holdings: ${topNames}.`;
+        }
+
+        // Get fund category if available
+        let categoryContext = '';
+        if (result.fundProfile?.categoryName) {
+          categoryContext = ` Morningstar category: ${result.fundProfile.categoryName}.`;
+        }
+
+        if (allocations.length > 0) {
+          console.log(`[Asset Allocation] ✅ Yahoo Finance returned allocation for ${ticker}: ${allocations.join(', ')}`);
+          return {
+            description: `${fundName} (${ticker}) underlying asset allocation: ${allocations.join(', ')}.${categoryContext}${holdingsContext} Use the fund name, category, and top holdings to determine the Australian vs International split within each asset type. Source: Yahoo Finance fund data.`,
+            sources: [`Yahoo Finance - ${ticker}`]
+          };
+        }
+      }
+
+      console.log(`[Asset Allocation] Yahoo Finance had no allocation data for ${ticker}, falling back to search`);
+    } catch (error) {
+      console.log(`[Asset Allocation] Yahoo Finance quoteSummary failed for ${ticker}:`, error instanceof Error ? error.message : error);
+    }
+  }
+
+  // Fallback: Brave Search for asset allocation information
+  const searchQuery = fundManager
+    ? `"${fundName}" ${fundManager} asset allocation percentage breakdown stocks bonds equities fixed interest`
+    : `"${fundName}" asset allocation percentage breakdown stocks bonds equities fixed interest`;
+
+  try {
+    if (!process.env.BRAVE_SEARCH_API_KEY) {
+      console.warn('[Asset Allocation] Brave Search API key not configured');
+      return {
+        description: `${fundName} - Asset allocation data not available (API key not configured). Use your knowledge of this fund to estimate the breakdown.`,
+        sources: []
+      };
+    }
+
+    console.log(`[Asset Allocation] Searching Brave for: ${searchQuery}`);
+    const response = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Brave Search API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const descriptions = data.web?.results
+      ?.slice(0, 5)
+      .map((r: any) => r.description)
+      .filter(Boolean) || [];
+
+    const sources = data.web?.results
+      ?.slice(0, 5)
+      .map((r: any) => r.url)
+      .filter(Boolean) || [];
+
+    const description = descriptions.length > 0
+      ? descriptions.join(' ')
+      : `${fundName} - No asset allocation data found via search`;
+
+    console.log(`[Asset Allocation] ✅ Brave Search returned ${descriptions.length} results for ${fundName}`);
+
+    return {
+      description: `${fundName} asset allocation search results: ${description.slice(0, 800)}. Use this information to determine the percentage breakdown across asset classes (Australian Shares, International Shares, Australian Fixed Interest, International Fixed Interest, Cash, Alternatives, etc.).`,
+      sources
+    };
+
+  } catch (error) {
+    console.error('[Asset Allocation] Search failed:', error);
+    return {
+      description: `${fundName} - Asset allocation search failed. Use your knowledge of this fund to estimate the breakdown across asset classes.`,
+      sources: []
+    };
+  }
+}
+
 async function performGeneralSearch(query: string, fallbackDescription: string): Promise<SearchResult> {
   try {
     if (!process.env.BRAVE_SEARCH_API_KEY) {
@@ -1157,6 +1283,28 @@ export const SEARCH_TOOLS = [
       },
       required: ["fund_name", "fund_manager", "timeframe_period"],
     },
+  },
+  {
+    name: "search_fund_asset_allocation",
+    description: "Look up the underlying asset class allocation breakdown for a fund or ETF. Returns the percentage split across asset classes (stocks/equities, bonds/fixed interest, cash, alternatives). For ETFs with tickers, uses Yahoo Finance fund data. For managed funds without tickers, uses web search. IMPORTANT: Call this for EVERY fund that is diversified, balanced, or multi-asset (invests across multiple asset classes). This data is essential for accurate portfolio-level asset allocation.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fund_name: {
+          type: "string",
+          description: "Full fund/ETF name (e.g., 'Vanguard Diversified Index Fund', 'Colonial FirstChoice Balanced')",
+        },
+        ticker: {
+          type: "string",
+          description: "Optional ticker symbol with exchange suffix (e.g., 'VDIF.AX' for ASX). Enables faster Yahoo Finance lookup.",
+        },
+        fund_manager: {
+          type: "string",
+          description: "Optional fund management company name (e.g., 'Vanguard', 'Colonial First Choice')",
+        },
+      },
+      required: ["fund_name"],
+    },
   }
 ] as const;
 
@@ -1223,7 +1371,15 @@ export async function executeSearchTool(
           toolInput.timeframe_period
         );
         return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
-        
+
+      case 'search_fund_asset_allocation':
+        result = await searchFundAssetAllocation(
+          toolInput.fund_name,
+          toolInput.ticker,
+          toolInput.fund_manager
+        );
+        return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
+
       default:
         return `Unknown tool: ${toolName}`;
     }

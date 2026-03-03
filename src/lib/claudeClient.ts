@@ -380,6 +380,9 @@ export async function analysePortfolioWithTools({
                 case 'search_fund_return_morningstar':
                   label = `Fetching Morningstar data for '${inp.fund_name}'`;
                   break;
+                case 'search_fund_asset_allocation':
+                  label = `Looking up asset allocation for '${inp.fund_name}'`;
+                  break;
                 default:
                   label = toolUse.name;
               }
