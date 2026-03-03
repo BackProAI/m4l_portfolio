@@ -1,5 +1,4 @@
 import mammoth from 'mammoth';
-import * as XLSX from 'xlsx';
 import type { FileType } from '@/types';
 
 // ============================================================================
@@ -115,30 +114,79 @@ export async function parseDocx(file: File): Promise<ParsedFileResult> {
 }
 
 // ============================================================================
-// Excel Parser (.xlsx, .xls)
+// CSV Parser (.csv) - Simple text-based parser, no heavy dependencies
+// ============================================================================
+
+export async function parseCSV(file: File): Promise<ParsedFileResult> {
+  try {
+    const text = await file.text();
+
+    // Convert comma-separated to tab-separated for consistency with Excel parser output
+    const lines = text.split(/\r?\n/);
+    const tsvLines = lines.map(line => {
+      // Simple CSV-to-TSV: handle quoted fields
+      const fields: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+          fields.push(current);
+          current = '';
+        } else {
+          current += ch;
+        }
+      }
+      fields.push(current);
+      return fields.join('\t');
+    });
+
+    const trimmedText = tsvLines.join('\n').trim();
+
+    console.log('[CSV Parser] File parsed:', {
+      fileName: file.name,
+      lines: lines.length,
+      contentLength: trimmedText.length,
+    });
+
+    return {
+      text: trimmedText,
+      isScanned: false,
+    };
+  } catch (error) {
+    console.error('CSV parsing error:', error);
+    throw new Error(`Failed to parse CSV file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// ============================================================================
+// Excel Parser (.xlsx, .xls) - Dynamic import to avoid bundling issues
 // ============================================================================
 
 export async function parseExcel(file: File): Promise<ParsedFileResult> {
   try {
+    const XLSX = await import('xlsx');
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-    
+
     let fullText = '';
-    
+
     // Process each sheet
-    workbook.SheetNames.forEach((sheetName) => {
+    workbook.SheetNames.forEach((sheetName: string) => {
       const sheet = workbook.Sheets[sheetName];
-      
+
       // Add sheet name as header
       fullText += `\n=== ${sheetName} ===\n\n`;
-      
+
       // Convert sheet to CSV format (preserves structure)
       const csv = XLSX.utils.sheet_to_csv(sheet, { FS: '\t' });
       fullText += csv + '\n';
     });
-    
+
     const trimmedText = fullText.trim();
-    
+
     // Log parsing result for debugging
     console.log('[Excel Parser] File parsed:', {
       fileName: file.name,
@@ -147,12 +195,12 @@ export async function parseExcel(file: File): Promise<ParsedFileResult> {
       contentLength: trimmedText.length,
       isEmpty: trimmedText.length < 50
     });
-    
+
     // Warn if content seems too short
     if (trimmedText.length < 50) {
       console.warn('[Excel Parser] Warning: Very little content extracted from Excel file');
     }
-    
+
     return {
       text: trimmedText,
       isScanned: false,
@@ -173,9 +221,10 @@ export async function parseFile(file: File, type: FileType): Promise<ParsedFileR
       return parsePDF(file);
     case 'docx':
       return parseDocx(file);
+    case 'csv':
+      return parseCSV(file);
     case 'xlsx':
     case 'xls':
-    case 'csv':
       return parseExcel(file);
     default:
       throw new Error(`Unsupported file type: ${type}`);

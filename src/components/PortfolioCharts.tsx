@@ -37,7 +37,7 @@ export function PortfolioCharts({ chartData, holdingsPerformance }: PortfolioCha
           <div className="text-center">
             <p className="text-sm text-neutral-500 mb-1">Total Portfolio Value (Market Value)</p>
             <p className="text-4xl font-bold text-primary">
-              ${chartData.portfolioValue.toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              ${(chartData.portfolioValue ?? 0).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </p>
           </div>
         </CardContent>
@@ -84,7 +84,7 @@ export function PortfolioCharts({ chartData, holdingsPerformance }: PortfolioCha
                     <span className="text-sm font-medium text-neutral-800">{item.name}</span>
                   </div>
                   <span className="font-semibold text-neutral-900 text-sm">
-                    ${item.value.toLocaleString('en-AU')} ({item.percentage}%)
+                    ${(item.value ?? 0).toLocaleString('en-AU')} ({item.percentage ?? 0}%)
                   </span>
                 </div>
               ))}
