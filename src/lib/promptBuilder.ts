@@ -15,6 +15,15 @@ export function buildAnalysisPrompt(
     fundManager?: string;
   }>
 ): { system: string; user: string} {
+  // Compute a trailing 12-month fallback period for when documents have no dates
+  const today = new Date();
+  const oneYearAgo = new Date(today);
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fallbackStart = `${oneYearAgo.getDate()} ${months[oneYearAgo.getMonth()]} ${oneYearAgo.getFullYear()}`;
+  const fallbackEnd = `${today.getDate()} ${months[today.getMonth()]} ${today.getFullYear()}`;
+  const fallbackTimeframe = `${fallbackStart} to ${fallbackEnd}`;
+
   // System prompt - Define Claude's role
   const systemPrompt = `You are an expert Australian financial portfolio analyst with deep expertise in superannuation, managed funds, and investment strategy. Your role is to provide purely factual analysis of investment portfolios.
 
@@ -60,12 +69,16 @@ When analysing individual holdings in the portfolio, classify each into one of t
 PERFORMANCE DATA EXTRACTION:
 **STEP 1 - EXTRACT REPORTING TIMEFRAME (CRITICAL FIRST STEP)**:
 - BEFORE analyzing individual holdings, you MUST identify the reporting date/timeframe from the portfolio statement
-- Two scenarios:
+- Three scenarios:
   A) Performance Period: "1 Jul 2024 to 30 Jun 2025" → Use this exact period for Yahoo Finance
   B) Point-in-time: "as at 24 February 2026" → Calculate 12-month lookback period automatically
      * If statement shows "as at 24 Feb 2026", use period: "24 Feb 2025 to 24 Feb 2026"
      * Format as: "[day] [month] [year-1] to [day] [month] [year]"
+  C) No date/timeframe found in document → Use trailing 12-month period: "${fallbackTimeframe}"
+     * Use this default when the document contains NO reporting date, performance period, or "as at" date
+     * This applies to CSV files, simple holdings lists, or any document without dates
 - Store this timeframe - it will be used for ALL holdings
+- You MUST always have a timeframe after this step (use scenario C as the last resort)
 
 **STEP 2 - EXTRACT HOLDING-SPECIFIC DATA**:
 CRITICAL - CHECK FOR RETURNS DATA FIRST:
