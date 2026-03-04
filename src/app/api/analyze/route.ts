@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { analysePortfolioWithTools } from '@/lib/claudeClient';
 import { buildAnalysisPrompt, combineDocumentContents } from '@/lib/promptBuilder';
-import type { InvestorProfile, FileType } from '@/types';
 
 // Tell Vercel to allow up to 300 seconds (max on Pro/Enterprise) for this route
 export const maxDuration = 300;
@@ -63,6 +62,15 @@ const AnalyseRequestSchema = z.object({
       fundManager: z.string().optional(),
     })
   ).optional(),
+  // Optional precomputed allocations from /api/fetch-allocations
+  precomputedAllocations: z.array(
+    z.object({
+      holdingName: z.string(),
+      ticker: z.string().optional(),
+      description: z.string(),
+      sources: z.array(z.string()),
+    })
+  ).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -70,6 +78,7 @@ export async function POST(request: NextRequest) {
   let profile: z.infer<typeof AnalyseRequestSchema>['profile'];
   let files: z.infer<typeof AnalyseRequestSchema>['files'];
   let precomputedReturns: z.infer<typeof AnalyseRequestSchema>['precomputedReturns'];
+  let precomputedAllocations: z.infer<typeof AnalyseRequestSchema>['precomputedAllocations'];
 
   try {
     const body = await request.json();
@@ -85,6 +94,7 @@ export async function POST(request: NextRequest) {
     profile = validationResult.data.profile;
     files = validationResult.data.files;
     precomputedReturns = validationResult.data.precomputedReturns;
+    precomputedAllocations = validationResult.data.precomputedAllocations;
   } catch {
     return new Response(
       JSON.stringify({ success: false, error: 'Failed to parse request body' }),
@@ -105,7 +115,7 @@ export async function POST(request: NextRequest) {
   const textFiles = files.filter(f => !f.isScanned || !f.base64Data);
   
   const documentContent = combineDocumentContents(textFiles);
-  const { system, user } = buildAnalysisPrompt(profile, documentContent, precomputedReturns);
+  const { system, user } = buildAnalysisPrompt(profile, documentContent, precomputedReturns, precomputedAllocations);
   const maxTokens = process.env.CLAUDE_MAX_TOKENS ? parseInt(process.env.CLAUDE_MAX_TOKENS, 10) : 16000;
   const temperature = process.env.CLAUDE_TEMPERATURE ? parseFloat(process.env.CLAUDE_TEMPERATURE) : 0.3;
 
@@ -149,6 +159,7 @@ export async function POST(request: NextRequest) {
           temperature,
           includeRiskSummary: profile.includeRiskSummary === true,
           hasPrecomputedReturns: !!(precomputedReturns && precomputedReturns.length > 0),
+          hasPrecomputedAllocations: !!(precomputedAllocations && precomputedAllocations.length > 0),
           scannedPDFs: scannedPDFs.map(f => ({
             fileName: f.fileName,
             base64Data: f.base64Data!,
@@ -161,11 +172,20 @@ export async function POST(request: NextRequest) {
         if (!result.success) {
           console.error('[API] Claude analysis failed:', result.error);
           
+          // Special handling for PRECOMPUTE_ALLOCATIONS - pass allocationToolsToExecute to frontend
+          if (result.error === 'PRECOMPUTE_ALLOCATIONS' && result.allocationToolsToExecute) {
+            console.log(`[API] Detected allocation lookups: ${result.allocationToolsToExecute.length} holdings need asset allocation`);
+            encode({
+              type: 'error',
+              error: 'PRECOMPUTE_ALLOCATIONS',
+              allocationToolsToExecute: result.allocationToolsToExecute,
+              message: `Pre-fetching asset allocations for ${result.allocationToolsToExecute.length} holdings in a separate call...`,
+            });
           // Special handling for TOO_MANY_HOLDINGS error - pass toolsToExecute to frontend
-          if (result.error === 'TOO_MANY_HOLDINGS' && result.toolsToExecute) {
+          } else if (result.error === 'TOO_MANY_HOLDINGS' && result.toolsToExecute) {
             console.log(`[API] Detected large portfolio: ${result.toolsToExecute.length} holdings need returns`);
-            encode({ 
-              type: 'error', 
+            encode({
+              type: 'error',
               error: 'TOO_MANY_HOLDINGS',
               toolsToExecute: result.toolsToExecute,
               message: `Large portfolio detected (${result.toolsToExecute.length} holdings without returns). Switching to optimized 2-step analysis...`

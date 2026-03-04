@@ -21,6 +21,8 @@ export interface AnalysePortfolioParams {
   includeRiskSummary?: boolean;
   /** Whether precomputed returns were provided — disables TOO_MANY_HOLDINGS detection during retry */
   hasPrecomputedReturns?: boolean;
+  /** Whether precomputed allocations were provided — filters out search_fund_asset_allocation tool */
+  hasPrecomputedAllocations?: boolean;
   /** Scanned PDFs to send as document blocks (uses Claude's native PDF support with OCR) */
   scannedPDFs?: Array<{
     fileName: string;
@@ -39,6 +41,11 @@ export interface AnalysePortfolioResult {
   model?: string;
   // Additional fields for TOO_MANY_HOLDINGS error
   toolsToExecute?: Array<{
+    name: string;
+    input: Record<string, any>;
+  }>;
+  // Used for PRECOMPUTE_ALLOCATIONS signal
+  allocationToolsToExecute?: Array<{
     name: string;
     input: Record<string, any>;
   }>;
@@ -143,6 +150,7 @@ export async function analysePortfolioWithTools({
   onProgress,
   includeRiskSummary = false,
   hasPrecomputedReturns = false,
+  hasPrecomputedAllocations = false,
   scannedPDFs = [],
 }: AnalysePortfolioParams): Promise<AnalysePortfolioResult> {
   try {
@@ -212,14 +220,17 @@ export async function analysePortfolioWithTools({
     while (iterationCount < maxIterations) {
       iterationCount++;
 
-      // Conditionally exclude return-fetching tools when precomputed returns are provided
-      // This prevents Claude from re-fetching data that was already fetched in the 2-call flow
-      const toolsToUse = hasPrecomputedReturns
-        ? SEARCH_TOOLS.filter(tool => 
-            tool.name !== 'search_holding_return' && 
-            tool.name !== 'search_fund_return_morningstar'
-          )
-        : SEARCH_TOOLS;
+      // Exclude tools whose data was pre-fetched in a prior API call
+      const toolsToUse = SEARCH_TOOLS.filter(tool => {
+        if (hasPrecomputedReturns &&
+            (tool.name === 'search_holding_return' || tool.name === 'search_fund_return_morningstar')) {
+          return false;
+        }
+        if (hasPrecomputedAllocations && tool.name === 'search_fund_asset_allocation') {
+          return false;
+        }
+        return true;
+      });
 
       // Call Claude API with tools
       response = await anthropic.messages.create({
@@ -323,8 +334,28 @@ export async function analysePortfolioWithTools({
             const originalMaxTokens = dynamicMaxTokens;
             dynamicMaxTokens = Math.min(dynamicMaxTokens, 12000);
             tokensReduced = true;
-            
+
             console.log(`[Claude] 🚀 PERFORMANCE OPTIMIZATION: Reduced max_tokens from ${originalMaxTokens} to ${dynamicMaxTokens} (detected ${returnFetchingTools.length} return-fetching tools + risk summary enabled)`);
+          }
+        }
+
+        // DETECTION: If Claude is calling search_fund_asset_allocation AND allocations haven't
+        // been pre-fetched yet, abort early so the frontend can fetch them in a separate 300s call.
+        if (!hasPrecomputedAllocations) {
+          const allocationTools = toolUseBlocks.filter(block =>
+            block.name === 'search_fund_asset_allocation'
+          );
+          if (allocationTools.length > 0) {
+            console.log(`[Claude] 🚨 PRECOMPUTE_ALLOCATIONS: ${allocationTools.length} allocation lookups detected`);
+            console.log(`[Claude] Aborting early — frontend will pre-fetch allocations in a separate API call`);
+            return {
+              success: false,
+              error: 'PRECOMPUTE_ALLOCATIONS',
+              allocationToolsToExecute: allocationTools.map(block => ({
+                name: block.name,
+                input: block.input,
+              })),
+            } as any;
           }
         }
 

@@ -969,8 +969,237 @@ export async function searchFundReturnMorningstar(
 }
 
 /**
+ * Scrape asset allocation from Morningstar.com.au portfolio tab.
+ * Used as the final fallback when Yahoo Finance and Brave Search cannot provide
+ * a geographic breakdown. Requires BRAVE_SEARCH_API_KEY to find the fund ID.
+ */
+async function searchFundAssetAllocationMorningstar(
+  fundName: string,
+  ticker?: string,
+  fundManager?: string
+): Promise<SearchResult> {
+  let browser;
+  try {
+    console.log(`[Morningstar Allocation] Fetching asset allocation for ${fundName}`);
+
+    if (!process.env.BRAVE_SEARCH_API_KEY) {
+      return {
+        description: `${fundName} - Morningstar allocation data not available (Brave API key not configured). Cannot determine allocation — do NOT estimate or guess.`,
+        sources: [],
+      };
+    }
+
+    // Step 1: Find Morningstar fund ID via Brave search
+    const searchQuery = fundManager
+      ? `${fundName} ${fundManager} site:morningstar.com.au`
+      : `${fundName} ${ticker ?? ''} site:morningstar.com.au`;
+
+    const searchResponse = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY,
+        },
+      }
+    );
+
+    if (!searchResponse.ok) throw new Error(`Brave Search API error: ${searchResponse.status}`);
+
+    const searchData = await searchResponse.json();
+    const results = searchData.web?.results || [];
+
+    let fundId: string | null = null;
+    for (const result of results) {
+      const url = result.url || '';
+      const match = url.match(/\/investments\/security\/fund\/(\d+)/);
+      if (match) { fundId = match[1]; break; }
+    }
+
+    if (!fundId) {
+      console.log(`[Morningstar Allocation] No Morningstar listing found for ${fundName}`);
+      return {
+        description: `${fundName} - No Morningstar listing found. Cannot determine asset allocation — do NOT estimate or guess.`,
+        sources: [],
+      };
+    }
+
+    const portfolioUrl = `https://www.morningstar.com.au/investments/security/fund/${fundId}/portfolio`;
+    console.log(`[Morningstar Allocation] Navigating to: ${portfolioUrl}`);
+
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.goto(portfolioUrl, { waitUntil: 'networkidle2', timeout: 45000 });
+
+    // Handle modal (Individual Investor → Confirm) — same pattern as returns scraper
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const investorClicked = await page.evaluate(() => {
+        const headings = Array.from(document.querySelectorAll('h5, h4, h3'));
+        for (const heading of headings) {
+          if (heading.textContent?.includes('Individual Investor')) {
+            const clickTarget = heading.closest('button') || heading.closest('div[role="button"]') || heading;
+            (clickTarget as HTMLElement).click();
+            return true;
+          }
+        }
+        return false;
+      });
+      if (investorClicked) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const confirmClicked = await page.evaluate(() => {
+          const confirmButton = Array.from(document.querySelectorAll('button'))
+            .find(btn => btn.textContent?.trim() === 'Confirm');
+          if (confirmButton) { (confirmButton as HTMLButtonElement).click(); return true; }
+          return false;
+        });
+        if (confirmClicked) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      }
+    } catch (e) {
+      console.log(`[Morningstar Allocation] Modal handling error:`, e);
+    }
+
+    // Ensure we're on the portfolio tab
+    try {
+      const currentUrl = page.url();
+      if (!currentUrl.includes('/portfolio')) {
+        const tabClicked = await page.evaluate(() => {
+          const links = Array.from(document.querySelectorAll('a'));
+          for (const link of links) {
+            if ((link as HTMLAnchorElement).href?.includes('/portfolio') ||
+                link.textContent?.trim().toLowerCase() === 'portfolio') {
+              (link as HTMLAnchorElement).click();
+              return true;
+            }
+          }
+          return false;
+        });
+        if (tabClicked) {
+          try {
+            await page.waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' });
+          } catch { /* navigation timeout is fine */ }
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+    } catch (e) {
+      console.log(`[Morningstar Allocation] Portfolio tab navigation error:`, e);
+    }
+
+    // Wait for content to load
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Extract asset allocation from the portfolio page
+    const allocation = await page.evaluate(() => {
+      const result: Record<string, number> = {};
+
+      // Helper: classify a label into an asset class
+      const classify = (label: string): string | null => {
+        if (/australian.{0,15}(equit|share)/i.test(label)) return 'Australian Shares';
+        if (/international.{0,15}(equit|share)|global.{0,15}(equit|share)|non.aust.{0,15}(equit|share)/i.test(label)) return 'International Shares';
+        if (/australian.{0,15}(fixed|bond|credit)/i.test(label)) return 'Australian Fixed Interest';
+        if (/international.{0,15}(fixed|bond|credit)|global.{0,15}(fixed|bond)/i.test(label)) return 'International Fixed Interest';
+        if (/australian.{0,15}propert/i.test(label)) return 'Australian Property';
+        if (/international.{0,15}propert|global.{0,15}propert/i.test(label)) return 'International Property';
+        if (/\bcash\b/i.test(label)) return 'Domestic Cash';
+        if (/alternative|infrastructure/i.test(label)) return 'Alternatives';
+        return null;
+      };
+
+      // Strategy 1: scan all table rows for label + percentage pairs
+      const rows = Array.from(document.querySelectorAll('tr'));
+      for (const row of rows) {
+        const cells = Array.from(row.querySelectorAll('td, th'));
+        if (cells.length < 2) continue;
+        const label = (cells[0].textContent || '').trim();
+        const assetClass = classify(label);
+        if (!assetClass) continue;
+        for (const cell of cells.slice(1)) {
+          const text = (cell.textContent || '').trim();
+          const m = text.match(/^([\d.]+)\s*%?$/) || text.match(/([\d.]+)%/);
+          if (m) {
+            const v = parseFloat(m[1]);
+            if (v >= 0 && v <= 100) { result[assetClass] = v; break; }
+          }
+        }
+      }
+
+      if (Object.keys(result).length >= 2) return result;
+
+      // Strategy 2: scan all elements whose visible text is "Label pct%" on a single element
+      const allEls = Array.from(document.querySelectorAll('*'));
+      for (const el of allEls) {
+        if (el.children.length > 3) continue;
+        const text = (el.textContent || '').trim();
+        const m = text.match(/^(.+?)\s+([\d.]+)\s*%\s*$/);
+        if (!m) continue;
+        const assetClass = classify(m[1].trim());
+        if (assetClass) result[assetClass] = parseFloat(m[2]);
+      }
+
+      return result;
+    });
+
+    // Close browser
+    try {
+      const pages = await browser.pages();
+      await Promise.all(pages.map(p => p.close().catch(() => {})));
+      await Promise.race([
+        browser.close(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Browser close timeout')), 5000))
+      ]);
+      console.log(`[Morningstar Allocation] Browser closed`);
+    } catch (e) {
+      console.warn(`[Morningstar Allocation] Browser close warning:`, e);
+      try { browser.process()?.kill('SIGKILL'); } catch {}
+    }
+
+    if (Object.keys(allocation).length >= 2) {
+      const geoStr = Object.entries(allocation)
+        .sort((a, b) => b[1] - a[1])
+        .map(([cls, pct]) => `${cls}: ${pct.toFixed(1)}%`)
+        .join(', ');
+      console.log(`[Morningstar Allocation] ✅ Found allocation for ${fundName}: ${geoStr}`);
+      return {
+        description: `${fundName} geographic asset allocation from Morningstar: ${geoStr}. CRITICAL: Use these EXACT percentages to split this holding's dollar value across asset classes. Do NOT estimate or override these values.`,
+        sources: [portfolioUrl],
+      };
+    }
+
+    console.log(`[Morningstar Allocation] Could not extract sufficient data for ${fundName}`);
+    return {
+      description: `${fundName} - Morningstar portfolio page did not yield usable asset allocation data. Cannot determine allocation — do NOT estimate or guess.`,
+      sources: [portfolioUrl],
+    };
+  } catch (error) {
+    if (browser) {
+      try {
+        const pages = await browser.pages();
+        await Promise.all(pages.map(p => p.close().catch(() => {})));
+        await Promise.race([
+          browser.close(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+        ]);
+      } catch (e) {
+        try { browser.process()?.kill('SIGKILL'); } catch {}
+      }
+    }
+    console.error(`[Morningstar Allocation] Error for ${fundName}:`, error);
+    return {
+      description: `${fundName} - Morningstar allocation lookup failed: ${error instanceof Error ? error.message : 'Unknown error'}. Cannot determine allocation — do NOT estimate or guess.`,
+      sources: [],
+    };
+  }
+}
+
+/**
  * Search for a fund/ETF's underlying asset class allocation breakdown
- * Uses Yahoo Finance quoteSummary for holdings with tickers, Brave Search for others
+ * Uses Yahoo Finance quoteSummary for ETFs with tickers (geographic classification from sub-holdings).
+ * Falls back to Morningstar portfolio tab scraping for managed funds and any ETF where Yahoo Finance
+ * cannot provide a geographic breakdown.
  *
  * @param fundName - Name of the fund/ETF
  * @param ticker - Optional ticker symbol (e.g., "VDIF.AX")
@@ -997,101 +1226,110 @@ export async function searchFundAssetAllocation(
         const cashPct = topHoldings.cashPosition != null ? (topHoldings.cashPosition * 100) : null;
         const otherPct = topHoldings.otherPosition != null ? (topHoldings.otherPosition * 100) : null;
 
-        if (stockPct != null && stockPct > 0) allocations.push(`Stocks/Equities: ${stockPct.toFixed(1)}%`);
-        if (bondPct != null && bondPct > 0) allocations.push(`Bonds/Fixed Interest: ${bondPct.toFixed(1)}%`);
-        if (cashPct != null && cashPct > 0) allocations.push(`Cash: ${cashPct.toFixed(1)}%`);
-        if (otherPct != null && otherPct > 0) allocations.push(`Other/Alternatives: ${otherPct.toFixed(1)}%`);
+        // Attempt geographic classification directly from sub-holding names.
+        // This handles fund-of-funds (e.g. Vanguard diversified ETFs that hold VHY, VIF, VGB etc.)
+        // where the top-level Stocks/Bonds split is insufficient to determine the Aus vs Int breakdown.
+        const geoMap: Record<string, number> = {};
+        let geoClassifiedPct = 0;
+        for (const h of (topHoldings.holdings || []).slice(0, 10)) {
+          const pct = (h.holdingPercent || 0) * 100;
+          if (pct <= 0) continue;
+          const name = (h.holdingName || h.symbol || '').toLowerCase();
+          let assetClass: string | null = null;
 
-        // Get top holdings for additional context
-        let holdingsContext = '';
-        if (topHoldings.holdings && topHoldings.holdings.length > 0) {
-          const topNames = topHoldings.holdings
-            .slice(0, 10)
-            .map((h: any) => `${h.holdingName || h.symbol} (${((h.holdingPercent || 0) * 100).toFixed(1)}%)`)
+          if ((name.includes('australian') || name.includes(' aus ') || name.includes('aus share') || name.includes('high yield')) &&
+              (name.includes('share') || name.includes('equity') || name.includes('high yield'))) {
+            assetClass = 'Australian Shares';
+          } else if ((name.includes('international') || name.includes('global') || name.includes('msci') || name.includes('world')) &&
+                     (name.includes('share') || name.includes('equity') || name.includes('stock'))) {
+            assetClass = 'International Shares';
+          } else if ((name.includes('australian') || name.includes(' aus ') || name.includes('government bond')) &&
+                     (name.includes('bond') || name.includes('fixed') || name.includes('credit') || name.includes('government'))) {
+            assetClass = 'Australian Fixed Interest';
+          } else if ((name.includes('international') || name.includes('global') || name.includes('world')) &&
+                     (name.includes('bond') || name.includes('fixed') || name.includes('credit') || name.includes('income'))) {
+            assetClass = 'International Fixed Interest';
+          } else if (name.includes('property') || name.includes('real estate') || name.includes('reit')) {
+            assetClass = (name.includes('australian') || name.includes(' aus ')) ? 'Australian Property' : 'International Property';
+          } else if (name.includes('cash') || name.includes('money market')) {
+            assetClass = 'Domestic Cash';
+          } else if (name.includes('alternative') || name.includes('infrastructure')) {
+            assetClass = 'Alternatives';
+          }
+
+          if (assetClass) {
+            geoMap[assetClass] = (geoMap[assetClass] || 0) + pct;
+            geoClassifiedPct += pct;
+          }
+        }
+        // Include cash position if not already captured from a named cash holding
+        if (cashPct && cashPct > 0 && !geoMap['Domestic Cash']) {
+          geoMap['Domestic Cash'] = cashPct;
+          geoClassifiedPct += cashPct;
+        }
+
+        // If >40% of holdings were classified across >1 asset class, return an authoritative geographic breakdown.
+        // Claude must use these exact percentages instead of estimating.
+        if (geoClassifiedPct > 40 && Object.keys(geoMap).length > 1) {
+          const geoStr = Object.entries(geoMap)
+            .sort((a, b) => b[1] - a[1])
+            .map(([cls, pct]) => `${cls}: ${pct.toFixed(1)}%`)
             .join(', ');
-          holdingsContext = ` Top holdings: ${topNames}.`;
-        }
-
-        // Get fund category if available
-        let categoryContext = '';
-        if (result.fundProfile?.categoryName) {
-          categoryContext = ` Morningstar category: ${result.fundProfile.categoryName}.`;
-        }
-
-        if (allocations.length > 0) {
-          console.log(`[Asset Allocation] ✅ Yahoo Finance returned allocation for ${ticker}: ${allocations.join(', ')}`);
+          let subHoldingsContext = '';
+          if (topHoldings.holdings && topHoldings.holdings.length > 0) {
+            const topNames = topHoldings.holdings
+              .slice(0, 10)
+              .map((h: any) => `${h.holdingName || h.symbol} (${((h.holdingPercent || 0) * 100).toFixed(1)}%)`)
+              .join(', ');
+            subHoldingsContext = ` Underlying holdings: ${topNames}.`;
+          }
+          console.log(`[Asset Allocation] ✅ Geographic classification for ${ticker}: ${geoStr}`);
           return {
-            description: `${fundName} (${ticker}) underlying asset allocation: ${allocations.join(', ')}.${categoryContext}${holdingsContext} Use the fund name, category, and top holdings to determine the Australian vs International split within each asset type. Source: Yahoo Finance fund data.`,
+            description: `${fundName} (${ticker}) geographic asset allocation derived from underlying holdings analysis: ${geoStr}. CRITICAL: Use these EXACT geographic percentages to split this holding's dollar value across asset classes. Do NOT estimate, adjust, or override these values.${subHoldingsContext}`,
             sources: [`Yahoo Finance - ${ticker}`]
           };
         }
+
+        // Geo classification did not meet threshold — check if we have identifiable sub-holding tickers.
+        // If so, instruct Claude to look them up individually rather than guessing the geographic split.
+        if (topHoldings.holdings && topHoldings.holdings.length > 0) {
+          const subHoldings = topHoldings.holdings
+            .slice(0, 10)
+            .map((h: any) => {
+              const sym = h.symbol || '';
+              const name = h.holdingName || sym || 'Unknown';
+              const pct = ((h.holdingPercent || 0) * 100).toFixed(1);
+              return sym && sym !== name ? `${name} (${sym}): ${pct}%` : `${name}: ${pct}%`;
+            })
+            .join(', ');
+
+          if (stockPct != null && stockPct > 0) allocations.push(`Stocks/Equities: ${stockPct.toFixed(1)}%`);
+          if (bondPct != null && bondPct > 0) allocations.push(`Bonds/Fixed Interest: ${bondPct.toFixed(1)}%`);
+          if (cashPct != null && cashPct > 0) allocations.push(`Cash: ${cashPct.toFixed(1)}%`);
+          if (otherPct != null && otherPct > 0) allocations.push(`Other/Alternatives: ${otherPct.toFixed(1)}%`);
+
+          const allocStr = allocations.length > 0 ? `Top-level allocation: ${allocations.join(', ')}. ` : '';
+          console.log(`[Asset Allocation] ⚠️ Geo classification insufficient for ${ticker}, instructing Claude to look up sub-holdings`);
+          return {
+            description: `${fundName} (${ticker}) is a fund-of-funds. ${allocStr}Sub-holdings: ${subHoldings}. CRITICAL: Do NOT estimate or guess the Australian vs International geographic split. Instead, call search_fund_asset_allocation for each sub-holding ticker individually, then weight each result by the sub-holding percentage to derive the true geographic breakdown for this fund.`,
+            sources: [`Yahoo Finance - ${ticker}`]
+          };
+        }
+
+        // No sub-holdings and no usable geographic breakdown from Yahoo Finance.
+        // Fall through to Morningstar which has structured portfolio data.
       }
 
-      console.log(`[Asset Allocation] Yahoo Finance had no allocation data for ${ticker}, falling back to search`);
+      console.log(`[Asset Allocation] Yahoo Finance had no usable geographic data for ${ticker}, falling back to Morningstar`);
     } catch (error) {
       console.log(`[Asset Allocation] Yahoo Finance quoteSummary failed for ${ticker}:`, error instanceof Error ? error.message : error);
     }
   }
 
-  // Fallback: Brave Search for asset allocation information
-  const searchQuery = fundManager
-    ? `"${fundName}" ${fundManager} asset allocation percentage breakdown stocks bonds equities fixed interest`
-    : `"${fundName}" asset allocation percentage breakdown stocks bonds equities fixed interest`;
-
-  try {
-    if (!process.env.BRAVE_SEARCH_API_KEY) {
-      console.warn('[Asset Allocation] Brave Search API key not configured');
-      return {
-        description: `${fundName} - Asset allocation data not available (API key not configured). Use your knowledge of this fund to estimate the breakdown.`,
-        sources: []
-      };
-    }
-
-    console.log(`[Asset Allocation] Searching Brave for: ${searchQuery}`);
-    const response = await fetch(
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5`,
-      {
-        headers: {
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip',
-          'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY
-        }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Brave Search API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const descriptions = data.web?.results
-      ?.slice(0, 5)
-      .map((r: any) => r.description)
-      .filter(Boolean) || [];
-
-    const sources = data.web?.results
-      ?.slice(0, 5)
-      .map((r: any) => r.url)
-      .filter(Boolean) || [];
-
-    const description = descriptions.length > 0
-      ? descriptions.join(' ')
-      : `${fundName} - No asset allocation data found via search`;
-
-    console.log(`[Asset Allocation] ✅ Brave Search returned ${descriptions.length} results for ${fundName}`);
-
-    return {
-      description: `${fundName} asset allocation search results: ${description.slice(0, 800)}. Use this information to determine the percentage breakdown across asset classes (Australian Shares, International Shares, Australian Fixed Interest, International Fixed Interest, Cash, Alternatives, etc.).`,
-      sources
-    };
-
-  } catch (error) {
-    console.error('[Asset Allocation] Search failed:', error);
-    return {
-      description: `${fundName} - Asset allocation search failed. Use your knowledge of this fund to estimate the breakdown across asset classes.`,
-      sources: []
-    };
-  }
+  // Morningstar: scrape the portfolio tab for structured geographic asset allocation.
+  // Used for managed funds (no ticker) and ETFs where Yahoo Finance couldn't provide a geographic breakdown.
+  console.log(`[Asset Allocation] Using Morningstar for ${fundName}`);
+  return searchFundAssetAllocationMorningstar(fundName, ticker, fundManager);
 }
 
 async function performGeneralSearch(query: string, fallbackDescription: string): Promise<SearchResult> {

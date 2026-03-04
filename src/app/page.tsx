@@ -506,8 +506,88 @@ export default function Home() {
               
               return; // Successfully completed 2-call flow
             }
-            
-            // Regular error (not TOO_MANY_HOLDINGS)
+
+            // PRECOMPUTE_ALLOCATIONS — fetch asset allocations in a separate 300s call, then retry
+            if (event.error === 'PRECOMPUTE_ALLOCATIONS' && event.allocationToolsToExecute) {
+              console.log(`[Client] 🗂️ Pre-fetching allocations for ${event.allocationToolsToExecute.length} holdings...`);
+              setAnalysisProgress(10);
+              setAnalysisProgressLabel(`Looking up asset allocations for ${event.allocationToolsToExecute.length} holdings...`);
+
+              let precomputedAllocations: any[] = [];
+
+              try {
+                const allocResponse = await fetch('/api/fetch-allocations', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ tools: event.allocationToolsToExecute }),
+                });
+
+                if (!allocResponse.ok) {
+                  const errData = await allocResponse.json().catch(() => null);
+                  throw new Error(`fetch-allocations: ${errData?.error || `HTTP ${allocResponse.status}`}`);
+                }
+
+                const allocData = await allocResponse.json();
+                if (!allocData.success) throw new Error(`fetch-allocations: ${allocData.error || 'Unknown error'}`);
+
+                precomputedAllocations = allocData.allocations;
+                console.log(`[Client] ✅ Got ${precomputedAllocations.length} precomputed allocations`);
+              } catch (fetchError) {
+                // Non-fatal — retry analysis without precomputed allocations, Claude will try inline
+                console.warn('[Client] ⚠️ fetch-allocations failed, retrying without precomputed data:', fetchError);
+              }
+
+              setAnalysisProgress(40);
+              setAnalysisProgressLabel('Completing analysis with fetched allocations...');
+
+              const retryResponse = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...requestData, precomputedAllocations }),
+              });
+
+              if (!retryResponse.ok || !retryResponse.body) {
+                const errJson = await retryResponse.json().catch(() => ({}));
+                throw new Error((errJson as any).error || 'Retry analysis (allocations) failed');
+              }
+
+              const retryReader = retryResponse.body.getReader();
+              const retryDecoder = new TextDecoder();
+              let retryBuffer = '';
+
+              while (true) {
+                const { value, done } = await retryReader.read();
+                if (done) break;
+                retryBuffer += retryDecoder.decode(value, { stream: true });
+                const retryParts = retryBuffer.split('\n\n');
+                retryBuffer = retryParts.pop() ?? '';
+
+                for (const part of retryParts) {
+                  const line = part.trim();
+                  if (!line.startsWith('data: ')) continue;
+                  const retryEvent = JSON.parse(line.slice(6));
+
+                  if (retryEvent.type === 'progress') {
+                    const scaledPct = 40 + Math.round((retryEvent.step / retryEvent.total) * 60);
+                    setAnalysisProgress(scaledPct);
+                    setAnalysisProgressLabel(retryEvent.label ?? undefined);
+                  } else if (retryEvent.type === 'result') {
+                    setAnalysisResult(retryEvent.data.analysis);
+                    setAnalysisProgress(100);
+                    setTimeout(() => {
+                      document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                    return;
+                  } else if (retryEvent.type === 'error') {
+                    throw new Error(retryEvent.error || 'Retry analysis (allocations) failed');
+                  }
+                }
+              }
+
+              return; // Successfully completed allocations pre-fetch flow
+            }
+
+            // Regular error
             throw new Error(event.error || 'Analysis failed');
           }
         }

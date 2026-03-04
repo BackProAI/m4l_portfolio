@@ -13,6 +13,12 @@ export function buildAnalysisPrompt(
     timeframe?: string;
     ticker?: string;
     fundManager?: string;
+  }>,
+  precomputedAllocations?: Array<{
+    holdingName: string;
+    ticker?: string;
+    description: string;
+    sources: string[];
   }>
 ): { system: string; user: string} {
   // Compute a trailing 12-month fallback period for when documents have no dates
@@ -149,10 +155,9 @@ ASSET ALLOCATION - LOOK-THROUGH CLASSIFICATION (CRITICAL):
     - Cash → Domestic Cash
     - Other/Alternatives → Alternatives
     - Property/Real Estate → Australian Property or International Property based on geographic focus
-  * Example: VDIF (Vanguard Diversified Index Fund) with $600K total value and allocation of Stocks 60%, Bonds 35%, Cash 5%:
-    - If the fund is known to have roughly 50/50 Aus/International equity split: Australian Shares = $180K, International Shares = $180K
-    - If bonds are mixed: Australian Fixed Interest = $105K, International Fixed Interest = $105K
-    - Cash = $30K
+  * Example: VDHG (Vanguard Diversified High Growth Index Fund) with $600K total value and the tool returns "Australian Shares: 36%, International Shares: 54%, Australian Fixed Interest: 5%, International Fixed Interest: 5%":
+    - Australian Shares = $216K (36%), International Shares = $324K (54%), Australian Fixed Interest = $30K (5%), International Fixed Interest = $30K (5%)
+    - IMPORTANT: When the tool returns explicit geographic percentages like this, use them EXACTLY — do not re-estimate
 - For single-asset-class holdings (e.g., "BHP Group" → Australian Shares, "US Government Bonds" → International Fixed Interest), assign 100% to that class
 - For direct shares: assign to Australian Shares (if ASX-listed) or International Shares (if overseas)
 - Aggregate ALL holdings' split contributions into the final assetAllocation array
@@ -195,6 +200,24 @@ ${profile.isIndustrySuperFund ? `<industry_super_fund_risk_profile>${profile.ind
 <portfolio_documents>
 ${documentContent}
 </portfolio_documents>
+${precomputedAllocations && precomputedAllocations.length > 0 ? `
+<precomputed_allocations>
+CRITICAL: The following holdings already have asset allocation data fetched in a previous step.
+
+DO NOT call search_fund_asset_allocation for ANY holding whose name matches or closely resembles any name in this list (even with minor differences in spacing, punctuation, or class designation).
+
+When calculating asset allocation, use the description below for each matched holding EXACTLY as provided — do NOT re-estimate or override.
+
+Precomputed asset allocation data:
+
+${precomputedAllocations.map(a => {
+  const id = a.ticker ? `${a.holdingName} (${a.ticker})` : a.holdingName;
+  return `- ${id}: ${a.description}`;
+}).join('\n')}
+
+Match holding names flexibly (e.g., "Vanguard VDIF" matches "VDIF.AX"). Use these values directly.
+</precomputed_allocations>
+` : ''}
 ${precomputedReturns && precomputedReturns.length > 0 ? `
 <precomputed_returns>
 CRITICAL: The following holdings already have return data fetched in a previous step. 
