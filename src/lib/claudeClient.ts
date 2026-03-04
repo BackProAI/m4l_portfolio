@@ -301,23 +301,57 @@ export async function analysePortfolioWithTools({
           };
         }
         
+        // DETECTION: If Claude is calling search_fund_asset_allocation AND allocations haven't
+        // been pre-fetched yet, abort early so the frontend can fetch them in a separate 300s call.
+        // CHECK THIS FIRST — if allocations are needed, also capture return tools from the same
+        // batch so the frontend can fetch both in parallel (eliminates one round-trip).
+        if (!hasPrecomputedAllocations) {
+          const allocationTools = toolUseBlocks.filter(block =>
+            block.name === 'search_fund_asset_allocation'
+          );
+          if (allocationTools.length > 0) {
+            // Also extract return tools from the same batch for parallel pre-fetching
+            const returnTools = toolUseBlocks.filter(block =>
+              block.name === 'search_holding_return' ||
+              block.name === 'search_fund_return_morningstar'
+            );
+            console.log(`[Claude] 🚨 PRECOMPUTE_ALLOCATIONS: ${allocationTools.length} allocation + ${returnTools.length} return tools detected`);
+            console.log(`[Claude] Aborting early — frontend will pre-fetch allocations${returnTools.length > 0 ? ' and returns' : ''} in parallel`);
+            return {
+              success: false,
+              error: 'PRECOMPUTE_ALLOCATIONS',
+              allocationToolsToExecute: allocationTools.map(block => ({
+                name: block.name,
+                input: block.input,
+              })),
+              // Include return tools so frontend can fetch them in parallel with allocations
+              ...(returnTools.length > 0 ? {
+                toolsToExecute: returnTools.map(block => ({
+                  name: block.name,
+                  input: block.input as Record<string, any>,
+                })),
+              } : {}),
+            } as any;
+          }
+        }
+
         // OPTIMIZATION: Reduce max_tokens to speed up final generation when:
         // - Holdings are missing return data (tools are being called)
         // - AND risk summary calculations are enabled (more processing needed)
         // This prevents timeout when many managed funds need Morningstar scraping
         if (!tokensReduced && includeRiskSummary && !hasPrecomputedReturns) {
-          const returnFetchingTools = toolUseBlocks.filter(block => 
-            block.name === 'search_holding_return' || 
+          const returnFetchingTools = toolUseBlocks.filter(block =>
+            block.name === 'search_holding_return' ||
             block.name === 'search_fund_return_morningstar'
           );
-          
+
           // DETECTION: If > 12 return-fetching tools + risk summary enabled,
           // the analysis will likely timeout. Abort early and let frontend use 2-call flow.
           // SKIP this check if hasPrecomputedReturns=true (we're already in the retry flow)
           if (returnFetchingTools.length > 12) {
             console.log(`[Claude] 🚨 TOO MANY HOLDINGS DETECTED: ${returnFetchingTools.length} return-fetching tools + risk summary enabled`);
             console.log(`[Claude] Aborting early to prevent timeout. Frontend will use 2-call flow.`);
-            
+
             return {
               success: false,
               error: 'TOO_MANY_HOLDINGS',
@@ -327,7 +361,7 @@ export async function analysePortfolioWithTools({
               })),
             } as any; // Cast to any to allow additional fields
           }
-          
+
           if (returnFetchingTools.length > 0) {
             // Reduce from 16000 to 12000 tokens - still sufficient for complete analysis
             // but 25% faster generation, helping stay under 300s timeout
@@ -336,26 +370,6 @@ export async function analysePortfolioWithTools({
             tokensReduced = true;
 
             console.log(`[Claude] 🚀 PERFORMANCE OPTIMIZATION: Reduced max_tokens from ${originalMaxTokens} to ${dynamicMaxTokens} (detected ${returnFetchingTools.length} return-fetching tools + risk summary enabled)`);
-          }
-        }
-
-        // DETECTION: If Claude is calling search_fund_asset_allocation AND allocations haven't
-        // been pre-fetched yet, abort early so the frontend can fetch them in a separate 300s call.
-        if (!hasPrecomputedAllocations) {
-          const allocationTools = toolUseBlocks.filter(block =>
-            block.name === 'search_fund_asset_allocation'
-          );
-          if (allocationTools.length > 0) {
-            console.log(`[Claude] 🚨 PRECOMPUTE_ALLOCATIONS: ${allocationTools.length} allocation lookups detected`);
-            console.log(`[Claude] Aborting early — frontend will pre-fetch allocations in a separate API call`);
-            return {
-              success: false,
-              error: 'PRECOMPUTE_ALLOCATIONS',
-              allocationToolsToExecute: allocationTools.map(block => ({
-                name: block.name,
-                input: block.input,
-              })),
-            } as any;
           }
         }
 

@@ -990,6 +990,8 @@ async function searchFundAssetAllocationMorningstar(
   ticker?: string,
   fundManager?: string
 ): Promise<SearchResult> {
+  const MAX_ATTEMPTS = 2;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
   let browser;
   try {
     console.log(`[Morningstar Allocation] Fetching asset allocation for ${fundName}`);
@@ -1072,9 +1074,12 @@ async function searchFundAssetAllocationMorningstar(
     await page.setViewport({ width: 1920, height: 1080 });
     await page.goto(portfolioUrl, { waitUntil: 'networkidle2', timeout: 45000 });
 
-    // Handle modal (Individual Investor → Confirm) — same pattern as returns scraper
+    // Handle Morningstar's user type selection modal (same robust pattern as returns scraper)
+    // Need to click "Individual Investor" THEN click "Confirm"
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Give modal time to appear
+
+      // Step 1: Click "Individual Investor" option
       const investorClicked = await page.evaluate(() => {
         const headings = Array.from(document.querySelectorAll('h5, h4, h3'));
         for (const heading of headings) {
@@ -1086,63 +1091,137 @@ async function searchFundAssetAllocationMorningstar(
         }
         return false;
       });
-      if (investorClicked) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const confirmClicked = await page.evaluate(() => {
-          const confirmButton = Array.from(document.querySelectorAll('button'))
-            .find(btn => btn.textContent?.trim() === 'Confirm');
-          if (confirmButton) { (confirmButton as HTMLButtonElement).click(); return true; }
-          return false;
-        });
-        if (confirmClicked) {
-          await new Promise(resolve => setTimeout(resolve, 3000));
-        }
-      }
-    } catch (e) {
-      console.log(`[Morningstar Allocation] Modal handling error:`, e);
-    }
 
-    // Ensure we're on the portfolio tab
-    try {
-      const currentUrl = page.url();
-      if (!currentUrl.includes('/portfolio')) {
-        const tabClicked = await page.evaluate(() => {
-          const links = Array.from(document.querySelectorAll('a'));
-          for (const link of links) {
-            if ((link as HTMLAnchorElement).href?.includes('/portfolio') ||
-                link.textContent?.trim().toLowerCase() === 'portfolio') {
-              (link as HTMLAnchorElement).click();
-              return true;
-            }
+      if (investorClicked) {
+        console.log(`[Morningstar Allocation] Clicked Individual Investor option`);
+        await new Promise(resolve => setTimeout(resolve, 500)); // Brief wait before confirm
+
+        // Step 2: Click "Confirm" button
+        const confirmClicked = await page.evaluate(() => {
+          const allButtons = Array.from(document.querySelectorAll('button'));
+          const confirmButton = allButtons.find(btn => btn.textContent?.trim() === 'Confirm');
+          if (confirmButton) {
+            (confirmButton as HTMLButtonElement).click();
+            return true;
           }
           return false;
         });
-        if (tabClicked) {
-          try {
-            await page.waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' });
-          } catch { /* navigation timeout is fine */ }
-          await new Promise(resolve => setTimeout(resolve, 2000));
+
+        if (confirmClicked) {
+          console.log(`[Morningstar Allocation] Clicked Confirm button`);
+          await new Promise(resolve => setTimeout(resolve, 4000)); // Wait for page to reload after confirmation
+
+          // Verify we're still on the portfolio page
+          const currentUrl = page.url();
+          console.log(`[Morningstar Allocation] Current URL after confirm: ${currentUrl}`);
+
+          if (!currentUrl.includes('/portfolio')) {
+            console.log(`[Morningstar Allocation] Page redirected away from portfolio after modal! Navigating back...`);
+            const portfolioTabClicked = await page.evaluate(() => {
+              const links = Array.from(document.querySelectorAll('a'));
+              for (const link of links) {
+                if ((link as HTMLAnchorElement).href?.includes('/portfolio') ||
+                    link.textContent?.trim().toLowerCase() === 'portfolio') {
+                  (link as HTMLAnchorElement).click();
+                  return true;
+                }
+              }
+              return false;
+            });
+
+            if (portfolioTabClicked) {
+              console.log(`[Morningstar Allocation] Clicked Portfolio tab link`);
+              try {
+                await page.waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' });
+                console.log(`[Morningstar Allocation] Portfolio page navigation completed`);
+              } catch (navError) {
+                console.log(`[Morningstar Allocation] Navigation timeout, continuing anyway`);
+              }
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            } else {
+              console.log(`[Morningstar Allocation] ERROR: Could not find Portfolio tab link`);
+              throw new Error('Portfolio tab not found after modal redirect');
+            }
+          }
+        } else {
+          console.log(`[Morningstar Allocation] Warning: Could not find Confirm button`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      } else {
+        console.log(`[Morningstar Allocation] No Individual Investor option found`);
+
+        // Check if we're on the portfolio page anyway
+        const currentUrl = page.url();
+        console.log(`[Morningstar Allocation] Current URL (no modal): ${currentUrl}`);
+
+        if (!currentUrl.includes('/portfolio')) {
+          console.log(`[Morningstar Allocation] Not on portfolio page, trying to click Portfolio tab`);
+          const portfolioTabClicked = await page.evaluate(() => {
+            const links = Array.from(document.querySelectorAll('a'));
+            for (const link of links) {
+              if ((link as HTMLAnchorElement).href?.includes('/portfolio') ||
+                  link.textContent?.trim().toLowerCase() === 'portfolio') {
+                (link as HTMLAnchorElement).click();
+                return true;
+              }
+            }
+            return false;
+          });
+
+          if (portfolioTabClicked) {
+            console.log(`[Morningstar Allocation] Clicked Portfolio tab link`);
+            try {
+              await page.waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' });
+              console.log(`[Morningstar Allocation] Portfolio page navigation completed`);
+            } catch (navError) {
+              console.log(`[Morningstar Allocation] Navigation timeout, continuing anyway`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else {
+            console.log(`[Morningstar Allocation] ERROR: Could not find Portfolio tab link`);
+            throw new Error('Portfolio tab not found - page structure may have changed');
+          }
         }
       }
     } catch (e) {
-      console.log(`[Morningstar Allocation] Portfolio tab navigation error:`, e);
+      console.log(`[Morningstar Allocation] Error handling modal:`, e);
     }
 
-    // Wait for content to load
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Wait for the asset allocation table to load
+    // Morningstar uses sal-mip-asset-allocation__assetTable class or generic mds-table
+    console.log(`[Morningstar Allocation] Waiting for allocation table to load...`);
+    try {
+      await page.waitForSelector('.sal-mip-asset-allocation__assetTable, [class*="mds-table"], table[summary]', { timeout: 40000 });
+      console.log(`[Morningstar Allocation] Allocation table loaded`);
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Let data stabilize
+    } catch (err) {
+      console.log(`[Morningstar Allocation] Table timeout after 40s - trying with available content`);
+      const pageState = await page.evaluate(() => {
+        return {
+          hasTables: document.querySelectorAll('table').length,
+          url: window.location.href,
+          bodyText: document.body.innerText.substring(0, 500)
+        };
+      });
+      console.log(`[Morningstar Allocation] Page state at timeout:`, JSON.stringify(pageState, null, 2));
+      // Don't throw - try extraction with whatever is available
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
 
     // Extract asset allocation from the portfolio page
     const allocation = await page.evaluate(() => {
       const result: Record<string, number> = {};
 
       // Helper: classify a label into an asset class
+      // Morningstar uses "Domestic Equity" (not "Australian Shares"), "Listed Property" (not "Australian Property"), etc.
+      // Handle both conventions so extraction works for both Morningstar and other data sources.
       const classify = (label: string): string | null => {
-        if (/australian.{0,15}(equit|share)/i.test(label)) return 'Australian Shares';
-        if (/international.{0,15}(equit|share)|global.{0,15}(equit|share)|non.aust.{0,15}(equit|share)/i.test(label)) return 'International Shares';
-        if (/australian.{0,15}(fixed|bond|credit)/i.test(label)) return 'Australian Fixed Interest';
-        if (/international.{0,15}(fixed|bond|credit)|global.{0,15}(fixed|bond)/i.test(label)) return 'International Fixed Interest';
-        if (/australian.{0,15}propert/i.test(label)) return 'Australian Property';
-        if (/international.{0,15}propert|global.{0,15}propert/i.test(label)) return 'International Property';
+        if (/(?:australian|domestic).{0,15}(equit|share)/i.test(label)) return 'Australian Shares';
+        if (/(?:international|global|non.aust).{0,15}(equit|share)/i.test(label)) return 'International Shares';
+        if (/(?:australian|domestic).{0,15}(fixed|bond|credit)/i.test(label)) return 'Australian Fixed Interest';
+        if (/(?:international|global).{0,15}(fixed|bond|credit)/i.test(label)) return 'International Fixed Interest';
+        if (/(?:australian|domestic|listed|unlisted).{0,15}propert/i.test(label)) return 'Australian Property';
+        if (/(?:international|global).{0,15}propert/i.test(label)) return 'International Property';
         if (/\bcash\b/i.test(label)) return 'Domestic Cash';
         if (/alternative|infrastructure/i.test(label)) return 'Alternatives';
         return null;
@@ -1249,12 +1328,22 @@ async function searchFundAssetAllocationMorningstar(
         try { browser.process()?.kill('SIGKILL'); } catch {}
       }
     }
+    if (attempt < MAX_ATTEMPTS) {
+      console.warn(`[Morningstar Allocation] Attempt ${attempt} failed for ${fundName}: ${error instanceof Error ? error.message : 'Unknown error'}. Retrying in 3s...`);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      continue;
+    }
     console.error(`[Morningstar Allocation] Error for ${fundName}:`, error);
     return {
       description: `${fundName} - Morningstar allocation lookup failed: ${error instanceof Error ? error.message : 'Unknown error'}. Cannot determine allocation — do NOT estimate or guess.`,
       sources: [],
     };
   }
+  } // end retry loop
+  return {
+    description: `${fundName} - Morningstar allocation lookup failed after ${MAX_ATTEMPTS} attempts. Cannot determine allocation — do NOT estimate or guess.`,
+    sources: [],
+  };
 }
 
 /**

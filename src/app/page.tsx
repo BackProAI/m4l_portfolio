@@ -507,43 +507,108 @@ export default function Home() {
               return; // Successfully completed 2-call flow
             }
 
-            // PRECOMPUTE_ALLOCATIONS — fetch asset allocations in a separate 300s call, then retry
+            // PRECOMPUTE_ALLOCATIONS — fetch asset allocations (and returns if available) in parallel, then retry
             if (event.error === 'PRECOMPUTE_ALLOCATIONS' && event.allocationToolsToExecute) {
-              console.log(`[Client] 🗂️ Pre-fetching allocations for ${event.allocationToolsToExecute.length} holdings...`);
+              const hasReturnTools = event.toolsToExecute && event.toolsToExecute.length > 0;
+              console.log(`[Client] 🗂️ Pre-fetching allocations for ${event.allocationToolsToExecute.length} holdings${hasReturnTools ? ` + returns for ${event.toolsToExecute.length} holdings (parallel)` : ''}...`);
               setAnalysisProgress(10);
-              setAnalysisProgressLabel(`Looking up asset allocations for ${event.allocationToolsToExecute.length} holdings...`);
+              setAnalysisProgressLabel(hasReturnTools
+                ? `Fetching allocations (${event.allocationToolsToExecute.length}) + returns (${event.toolsToExecute.length}) in parallel...`
+                : `Looking up asset allocations for ${event.allocationToolsToExecute.length} holdings...`);
 
               let precomputedAllocations: any[] = [];
+              let precomputedReturns: any[] | undefined;
 
               try {
-                const allocResponse = await fetch('/api/fetch-allocations', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ tools: event.allocationToolsToExecute }),
-                });
+                // Build parallel fetch promises
+                const fetchPromises: Promise<any>[] = [];
 
-                if (!allocResponse.ok) {
-                  const errData = await allocResponse.json().catch(() => null);
-                  throw new Error(`fetch-allocations: ${errData?.error || `HTTP ${allocResponse.status}`}`);
+                // Always fetch allocations
+                fetchPromises.push(
+                  fetch('/api/fetch-allocations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tools: event.allocationToolsToExecute }),
+                  }).then(async (resp) => {
+                    if (!resp.ok) {
+                      const errData = await resp.json().catch(() => null);
+                      throw new Error(`fetch-allocations: ${errData?.error || `HTTP ${resp.status}`}`);
+                    }
+                    const data = await resp.json();
+                    if (!data.success) throw new Error(`fetch-allocations: ${data.error || 'Unknown error'}`);
+                    return { type: 'allocations' as const, data: data.allocations };
+                  })
+                );
+
+                // If return tools were captured in the same batch, fetch them in parallel
+                if (hasReturnTools) {
+                  // Split return tools into Yahoo Finance (fast) and Morningstar (slow)
+                  const yahooTools = event.toolsToExecute.filter((t: any) => t.name === 'search_holding_return');
+                  const msTools = event.toolsToExecute.filter((t: any) => t.name === 'search_fund_return_morningstar');
+
+                  if (yahooTools.length > 0) {
+                    fetchPromises.push(
+                      fetch('/api/fetch-returns', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tools: yahooTools }),
+                      }).then(async (resp) => {
+                        if (!resp.ok) throw new Error(`Yahoo Finance fetch failed: HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        console.log(`[Client] ✅ Yahoo Finance returns: ${data.returns?.length ?? 0}`);
+                        return { type: 'returns' as const, data: data.returns || [] };
+                      })
+                    );
+                  }
+
+                  // Batch Morningstar tools (6 per batch, same as TOO_MANY_HOLDINGS handler)
+                  const MS_BATCH = 6;
+                  for (let i = 0; i < msTools.length; i += MS_BATCH) {
+                    const batch = msTools.slice(i, i + MS_BATCH);
+                    fetchPromises.push(
+                      fetch('/api/fetch-returns', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tools: batch }),
+                      }).then(async (resp) => {
+                        if (!resp.ok) throw new Error(`Morningstar batch fetch failed: HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        console.log(`[Client] ✅ Morningstar batch returns: ${data.returns?.length ?? 0}`);
+                        return { type: 'returns' as const, data: data.returns || [] };
+                      })
+                    );
+                  }
                 }
 
-                const allocData = await allocResponse.json();
-                if (!allocData.success) throw new Error(`fetch-allocations: ${allocData.error || 'Unknown error'}`);
+                // Run all fetches in parallel
+                const results = await Promise.all(fetchPromises);
 
-                precomputedAllocations = allocData.allocations;
-                console.log(`[Client] ✅ Got ${precomputedAllocations.length} precomputed allocations`);
+                // Separate results by type
+                for (const result of results) {
+                  if (result.type === 'allocations') {
+                    precomputedAllocations = result.data;
+                  } else if (result.type === 'returns') {
+                    precomputedReturns = [...(precomputedReturns || []), ...result.data];
+                  }
+                }
+
+                console.log(`[Client] ✅ Got ${precomputedAllocations.length} allocations${precomputedReturns ? ` + ${precomputedReturns.length} returns` : ''}`);
               } catch (fetchError) {
-                // Non-fatal — retry analysis without precomputed allocations, Claude will try inline
-                console.warn('[Client] ⚠️ fetch-allocations failed, retrying without precomputed data:', fetchError);
+                // Non-fatal — retry analysis without precomputed data, Claude will try inline
+                console.warn('[Client] ⚠️ Parallel pre-fetch failed, retrying without precomputed data:', fetchError);
               }
 
               setAnalysisProgress(40);
-              setAnalysisProgressLabel('Completing analysis with fetched allocations...');
+              setAnalysisProgressLabel('Completing analysis with fetched data...');
 
               const retryResponse = await fetch('/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...requestData, precomputedAllocations }),
+                body: JSON.stringify({
+                  ...requestData,
+                  precomputedAllocations,
+                  ...(precomputedReturns ? { precomputedReturns } : {}),
+                }),
               });
 
               if (!retryResponse.ok || !retryResponse.body) {
