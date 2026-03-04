@@ -146,18 +146,35 @@ ONLY for holdings that completely lack return data in the documents (no Performa
 
 ASSET ALLOCATION - LOOK-THROUGH CLASSIFICATION (CRITICAL):
 - The asset allocation in the JSON output MUST reflect the TRUE underlying exposure of each holding, NOT just a single-class label.
-- For EVERY managed fund, ETF, or diversified/multi-asset holding:
+
+**STEP A - CHECK PORTFOLIO DOCUMENTS FOR ALLOCATION DATA FIRST**:
+- BEFORE calling any allocation tools, search the portfolio documents carefully for asset allocation breakdowns
+- Common locations: "Asset Mix" tables, "Asset Allocation" sections, "Growth/Defensive" splits, "Asset Class" columns
+- Common column headers: "Asset Class", "Asset Mix (%)", "Growth Assets", "Defensive Assets", "Allocation"
+- EXAMPLE - If the document shows for a holding:
+    "Australian Shares: 36%, International Shares: 54%, Fixed Interest: 5%, Cash: 5%"
+  Then use these percentages directly — DO NOT call search_fund_asset_allocation for that holding!
+- If you find allocation data for a holding in ANY format (percentage breakdown, growth/defensive split, pie chart labels, etc.):
+  * Use it to SPLIT the holding's dollar value across asset classes
+  * Map categories to the taxonomy below
+  * DO NOT call search_fund_asset_allocation for that holding
+
+**STEP B - FALLBACK: TOOL LOOKUP FOR HOLDINGS WITHOUT ALLOCATION DATA**:
+- ONLY for managed funds and ETFs where the portfolio documents contain NO asset allocation breakdown:
   * Call the search_fund_asset_allocation tool to get the underlying asset class breakdown (stocks %, bonds %, cash %, etc.)
+  * Even seemingly single-asset funds often have small allocations to cash, property, or other classes that affect portfolio-level calculations
   * Use the returned data to SPLIT the holding's dollar value proportionally across the asset classes it actually invests in
+
+**MAPPING RULES (apply to both document-extracted and tool-returned data)**:
   * Map the high-level categories to the taxonomy below using the fund name, category, and top holdings as context:
     - Stocks/Equities → split into Australian Shares and International Shares based on the fund's geographic focus
     - Bonds/Fixed Interest → split into Australian Fixed Interest and International Fixed Interest based on the fund's focus
     - Cash → Domestic Cash
     - Other/Alternatives → Alternatives
     - Property/Real Estate → Australian Property or International Property based on geographic focus
-  * Example: VDHG (Vanguard Diversified High Growth Index Fund) with $600K total value and the tool returns "Australian Shares: 36%, International Shares: 54%, Australian Fixed Interest: 5%, International Fixed Interest: 5%":
+  * Example: VDHG (Vanguard Diversified High Growth Index Fund) with $600K total value and allocation data "Australian Shares: 36%, International Shares: 54%, Australian Fixed Interest: 5%, International Fixed Interest: 5%":
     - Australian Shares = $216K (36%), International Shares = $324K (54%), Australian Fixed Interest = $30K (5%), International Fixed Interest = $30K (5%)
-    - IMPORTANT: When the tool returns explicit geographic percentages like this, use them EXACTLY — do not re-estimate
+    - IMPORTANT: When you have explicit geographic percentages (from documents OR tool), use them EXACTLY — do not re-estimate
 - For single-asset-class holdings (e.g., "BHP Group" → Australian Shares, "US Government Bonds" → International Fixed Interest), assign 100% to that class
 - For direct shares: assign to Australian Shares (if ASX-listed) or International Shares (if overseas)
 - Aggregate ALL holdings' split contributions into the final assetAllocation array
