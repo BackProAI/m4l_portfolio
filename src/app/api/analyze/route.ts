@@ -175,10 +175,14 @@ export async function POST(request: NextRequest) {
           // Special handling for PRECOMPUTE_ALLOCATIONS - pass allocationToolsToExecute to frontend
           if (result.error === 'PRECOMPUTE_ALLOCATIONS' && result.allocationToolsToExecute) {
             console.log(`[API] Detected allocation lookups: ${result.allocationToolsToExecute.length} holdings need asset allocation`);
+            if (result.toolsToExecute) {
+              console.log(`[API] Also captured ${result.toolsToExecute.length} return tools for parallel fetching`);
+            }
             encode({
               type: 'error',
               error: 'PRECOMPUTE_ALLOCATIONS',
               allocationToolsToExecute: result.allocationToolsToExecute,
+              toolsToExecute: result.toolsToExecute,
               message: `Pre-fetching asset allocations for ${result.allocationToolsToExecute.length} holdings in a separate call...`,
             });
           // Special handling for TOO_MANY_HOLDINGS error - pass toolsToExecute to frontend
