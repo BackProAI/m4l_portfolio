@@ -523,22 +523,39 @@ export default function Home() {
                 // Build parallel fetch promises
                 const fetchPromises: Promise<any>[] = [];
 
-                // Always fetch allocations
-                fetchPromises.push(
-                  fetch('/api/fetch-allocations', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tools: event.allocationToolsToExecute }),
-                  }).then(async (resp) => {
-                    if (!resp.ok) {
-                      const errData = await resp.json().catch(() => null);
-                      throw new Error(`fetch-allocations: ${errData?.error || `HTTP ${resp.status}`}`);
-                    }
-                    const data = await resp.json();
-                    if (!data.success) throw new Error(`fetch-allocations: ${data.error || 'Unknown error'}`);
-                    return { type: 'allocations' as const, data: data.allocations };
-                  })
-                );
+                // Batch allocation tools into groups of 6 (same pattern as Morningstar return batching).
+                // Each batch gets its own 300s Vercel timeout, keeping us well within limits.
+                const ALLOCATION_BATCH_SIZE = 6;
+                const allocationBatches: any[][] = [];
+                for (let i = 0; i < event.allocationToolsToExecute.length; i += ALLOCATION_BATCH_SIZE) {
+                  allocationBatches.push(event.allocationToolsToExecute.slice(i, i + ALLOCATION_BATCH_SIZE));
+                }
+
+                console.log(`[Client] 🗂️ Split allocations into ${allocationBatches.length} batches of up to ${ALLOCATION_BATCH_SIZE}`);
+
+                // Create a separate API call for each allocation batch
+                allocationBatches.forEach((batch, index) => {
+                  console.log(`[Client] 🗂️ Starting allocation batch ${index + 1}/${allocationBatches.length} (${batch.length} holdings)...`);
+                  fetchPromises.push(
+                    fetch('/api/fetch-allocations', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tools: batch }),
+                    }).then(async (resp) => {
+                      if (!resp.ok) {
+                        if (resp.status === 504) {
+                          throw new Error(`Allocation batch ${index + 1}: Timed out after 300s (${batch.length} holdings)`);
+                        }
+                        const errData = await resp.json().catch(() => null);
+                        throw new Error(`fetch-allocations batch ${index + 1}: ${errData?.error || `HTTP ${resp.status}`}`);
+                      }
+                      const data = await resp.json();
+                      if (!data.success) throw new Error(`fetch-allocations batch ${index + 1}: ${data.error || 'Unknown error'}`);
+                      console.log(`[Client] ✅ Allocation batch ${index + 1} complete: ${data.allocations.length} allocations`);
+                      return { type: 'allocations' as const, data: data.allocations };
+                    })
+                  );
+                });
 
                 // If return tools were captured in the same batch, fetch them in parallel
                 if (hasReturnTools) {
@@ -586,7 +603,7 @@ export default function Home() {
                 // Separate results by type
                 for (const result of results) {
                   if (result.type === 'allocations') {
-                    precomputedAllocations = result.data;
+                    precomputedAllocations = [...precomputedAllocations, ...result.data];
                   } else if (result.type === 'returns') {
                     precomputedReturns = [...(precomputedReturns || []), ...result.data];
                   }
