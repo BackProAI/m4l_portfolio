@@ -1228,7 +1228,58 @@ async function searchFundAssetAllocationMorningstar(
         return null;
       };
 
-      // Strategy 1: scan all table rows for label + percentage pairs
+      // Helper: extract the Investment column value (first <td>) from a row
+      const extractValue = (row: Element): number | null => {
+        const cells = Array.from(row.querySelectorAll('td'));
+        if (cells.length === 0) return null;
+        // The Investment column is the first <td> (after the <th> label)
+        const text = (cells[0].textContent || '').trim();
+        const m = text.match(/^([\d.]+)\s*%?$/) || text.match(/([\d.]+)%/);
+        if (m) {
+          const v = parseFloat(m[1]);
+          if (v >= 0 && v <= 100) return v;
+        }
+        return null;
+      };
+
+      // Helper: accumulate value into result (handles Listed + Unlisted Property both mapping
+      // to "Australian Property" — their values should be summed, not overwritten)
+      const addToResult = (assetClass: string, value: number) => {
+        result[assetClass] = (result[assetClass] || 0) + value;
+      };
+
+      // Strategy 1: target the specific Morningstar asset allocation table rows
+      // These have class "sal-mip-asset-allocation__assetTableRow" and contain the authoritative data.
+      // This avoids accidentally picking up data from other tables (Region Weightings, Sector, etc.)
+      const allocationRows = Array.from(document.querySelectorAll('.sal-mip-asset-allocation__assetTableRow'));
+      if (allocationRows.length > 0) {
+        for (const row of allocationRows) {
+          const label = (row.querySelector('th')?.textContent || '').trim();
+          const assetClass = classify(label);
+          if (!assetClass) continue;
+          const value = extractValue(row);
+          if (value !== null) addToResult(assetClass, value);
+        }
+        if (Object.keys(result).length >= 2) return result;
+      }
+
+      // Strategy 2: target the table with summary attribute (the asset allocation table uses table[summary])
+      const summaryTable = document.querySelector('table[summary]');
+      if (summaryTable) {
+        const rows = Array.from(summaryTable.querySelectorAll('tr'));
+        for (const row of rows) {
+          const th = row.querySelector('th[scope="row"]');
+          if (!th) continue;
+          const label = (th.textContent || '').trim();
+          const assetClass = classify(label);
+          if (!assetClass) continue;
+          const value = extractValue(row);
+          if (value !== null) addToResult(assetClass, value);
+        }
+        if (Object.keys(result).length >= 2) return result;
+      }
+
+      // Strategy 3: fallback — scan ALL table rows (for non-standard page layouts)
       const rows = Array.from(document.querySelectorAll('tr'));
       for (const row of rows) {
         const cells = Array.from(row.querySelectorAll('td, th'));
@@ -1241,14 +1292,14 @@ async function searchFundAssetAllocationMorningstar(
           const m = text.match(/^([\d.]+)\s*%?$/) || text.match(/([\d.]+)%/);
           if (m) {
             const v = parseFloat(m[1]);
-            if (v >= 0 && v <= 100) { result[assetClass] = v; break; }
+            if (v >= 0 && v <= 100) { addToResult(assetClass, v); break; }
           }
         }
       }
 
       if (Object.keys(result).length >= 2) return result;
 
-      // Strategy 2: scan all elements whose visible text is "Label pct%" on a single element
+      // Strategy 4: scan all elements whose visible text is "Label pct%" on a single element
       const allEls = Array.from(document.querySelectorAll('*'));
       for (const el of allEls) {
         if (el.children.length > 3) continue;
@@ -1256,7 +1307,7 @@ async function searchFundAssetAllocationMorningstar(
         const m = text.match(/^(.+?)\s+([\d.]+)\s*%\s*$/);
         if (!m) continue;
         const assetClass = classify(m[1].trim());
-        if (assetClass) result[assetClass] = parseFloat(m[2]);
+        if (assetClass) addToResult(assetClass, parseFloat(m[2]));
       }
 
       return result;
