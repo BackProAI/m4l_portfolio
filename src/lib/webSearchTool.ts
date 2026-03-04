@@ -694,16 +694,69 @@ export async function searchFundReturnMorningstar(
       }
     }
     
-    // If no candidate passed verification, fall back to first result
-    if (!fundId && candidateFundIds.length > 0) {
+    // If no candidate passed verification, try direct Morningstar search with APIR code
+    if (!fundId && apirCode) {
+      console.log(`[Morningstar] ⚠️ No candidate verified. Trying direct Morningstar search with APIR: ${apirCode}`);
+      try {
+        // Search Morningstar directly using their search page
+        const msSearchUrl = `https://www.morningstar.com.au/search?query=${encodeURIComponent(apirCode)}`;
+        const msSearchResponse = await fetch(msSearchUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          redirect: 'follow',
+        });
+        
+        if (msSearchResponse.ok) {
+          const msSearchHtml = await msSearchResponse.text();
+          // Look for fund links in search results
+          const fundLinkMatches = [...msSearchHtml.matchAll(/\/investments\/security\/fund\/(\d+)/g)];
+          const msSearchIds = [...new Set(fundLinkMatches.map(m => m[1]))];
+          console.log(`[Morningstar] Direct search found ${msSearchIds.length} fund IDs: ${msSearchIds.join(', ')}`);
+          
+          // Verify each result from Morningstar's own search
+          for (const msId of msSearchIds) {
+            if (seenIds.has(msId)) {
+              console.log(`[Morningstar] Skipping already-checked ID ${msId}`);
+              continue;
+            }
+            try {
+              const overviewUrl = `https://www.morningstar.com.au/investments/security/fund/${msId}/overview`;
+              const verifyResp = await fetch(overviewUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                redirect: 'follow',
+              });
+              if (verifyResp.ok) {
+                const html = await verifyResp.text();
+                if (html.includes(apirCode)) {
+                  fundId = msId;
+                  foundUrl = overviewUrl;
+                  console.log(`[Morningstar] ✅ Direct search: APIR ${apirCode} confirmed on fund ID ${msId}`);
+                  break;
+                }
+              }
+            } catch (e) {
+              console.warn(`[Morningstar] Could not verify direct search result ${msId}:`, e);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[Morningstar] Direct Morningstar search failed:`, e);
+      }
+    }
+    
+    // Final fallback: if we still don't have a fund ID and have NO APIR code, use first result
+    // But if we had an APIR code and couldn't verify, do NOT use an unverified result
+    if (!fundId && candidateFundIds.length > 0 && !apirCode) {
       fundId = candidateFundIds[0].id;
       foundUrl = candidateFundIds[0].url;
-      console.log(`[Morningstar] ⚠️ No candidate verified, falling back to first result: ${fundId}`);
+      console.log(`[Morningstar] ⚠️ No APIR code available, falling back to first result: ${fundId}`);
     }
     
     if (!fundId) {
+      const msg = apirCode 
+        ? `Could not find Morningstar listing matching APIR ${apirCode} for ${fundName} (${fundManager}). The fund may have been renamed or delisted.`
+        : `No Morningstar listing found for ${fundName} (${fundManager}). Fund may not be available on Morningstar.com.au.`;
       return {
-        description: `No Morningstar listing found for ${fundName} (${fundManager}). Fund may not be available on Morningstar.com.au.`,
+        description: msg,
         sources: [],
       };
     }

@@ -352,6 +352,15 @@ export async function analysePortfolioWithTools({
             console.log(`[Claude] 🚨 TOO MANY HOLDINGS DETECTED: ${returnFetchingTools.length} return-fetching tools + risk summary enabled`);
             console.log(`[Claude] Aborting early to prevent timeout. Frontend will use 2-call flow.`);
 
+            // Also capture any allocation tools in this batch so frontend can fetch them
+            // in parallel with returns (saves an entire round-trip)
+            const allocationToolsInBatch = toolUseBlocks.filter(block =>
+              block.name === 'search_fund_asset_allocation'
+            );
+            if (allocationToolsInBatch.length > 0) {
+              console.log(`[Claude] Also captured ${allocationToolsInBatch.length} allocation tools for parallel pre-fetching`);
+            }
+
             return {
               success: false,
               error: 'TOO_MANY_HOLDINGS',
@@ -359,6 +368,12 @@ export async function analysePortfolioWithTools({
                 name: block.name,
                 input: block.input,
               })),
+              ...(allocationToolsInBatch.length > 0 ? {
+                allocationToolsToExecute: allocationToolsInBatch.map(block => ({
+                  name: block.name,
+                  input: block.input,
+                })),
+              } : {}),
             } as any; // Cast to any to allow additional fields
           }
 

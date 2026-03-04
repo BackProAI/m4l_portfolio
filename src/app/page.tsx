@@ -303,6 +303,9 @@ export default function Home() {
               const yahooFinanceTools = event.toolsToExecute.filter((tool: any) => tool.name === 'search_holding_return');
               const morningstarTools = event.toolsToExecute.filter((tool: any) => tool.name === 'search_fund_return_morningstar');
               
+              // Check if allocation tools were also captured in this batch
+              const earlyAllocationTools = event.allocationToolsToExecute || [];
+              
               // OPTIMIZATION: Further split Morningstar funds into batches of 6
               // With concurrency=1, each batch takes ~180-270s (6 sequential funds × 30-45s), staying under 300s timeout
               // Reduced from concurrency=2 to avoid Morningstar rate limiting
@@ -312,11 +315,11 @@ export default function Home() {
                 morningstarBatches.push(morningstarTools.slice(i, i + MORNINGSTAR_BATCH_SIZE));
               }
               
-              console.log(`[Client] Split: ${yahooFinanceTools.length} Yahoo Finance, ${morningstarTools.length} Morningstar (${morningstarBatches.length} batches)`);
+              console.log(`[Client] Split: ${yahooFinanceTools.length} Yahoo Finance, ${morningstarTools.length} Morningstar (${morningstarBatches.length} batches)${earlyAllocationTools.length > 0 ? `, ${earlyAllocationTools.length} allocations (parallel)` : ''}`);
               
               // Show initial progress update
               setAnalysisProgress(10);
-              setAnalysisProgressLabel(`Fetching returns: ${yahooFinanceTools.length} stocks + ${morningstarTools.length} funds (${morningstarBatches.length} parallel batches)...`);
+              setAnalysisProgressLabel(`Fetching returns: ${yahooFinanceTools.length} stocks + ${morningstarTools.length} funds (${morningstarBatches.length} parallel batches)${earlyAllocationTools.length > 0 ? ` + ${earlyAllocationTools.length} allocations` : ''}...`);
               
               // Simulate progress during fetch-returns phase (10% -> 55%)
               // Yahoo is fast (~1-2s each), Morningstar is slow (~30-45s each with concurrency=1)
@@ -335,10 +338,11 @@ export default function Home() {
               }, (estimatedSeconds * 1000) / 45); // 45% range (10% to 55%)
               
               let allReturns: any[] = [];
+              let earlyAllocations: any[] = [];
               
               try {
                 // Call all APIs in parallel (each has separate 300s timeout)
-                const promises = [];
+                const promises: Promise<{ type: 'returns' | 'allocations'; data: any[] }>[] = [];
                 
                 if (yahooFinanceTools.length > 0) {
                   console.log(`[Client] 📊 Starting Yahoo Finance fetch (${yahooFinanceTools.length} holdings)...`);
@@ -357,7 +361,7 @@ export default function Home() {
                         throw new Error(`Yahoo Finance: ${data.error || 'Unknown error'}`);
                       }
                       console.log(`[Client] ✅ Yahoo Finance complete: ${data.returns.length} returns`);
-                      return data.returns;
+                      return { type: 'returns' as const, data: data.returns };
                     })
                   );
                 }
@@ -384,21 +388,59 @@ export default function Home() {
                         throw new Error(`Morningstar batch ${index + 1}: ${data.error || 'Unknown error'}`);
                       }
                       console.log(`[Client] ✅ Morningstar batch ${index + 1} complete: ${data.returns.length} returns`);
-                      return data.returns;
+                      return { type: 'returns' as const, data: data.returns };
                     })
                   );
                 });
                 
-                // Wait for all batches to complete (Yahoo + all Morningstar batches)
+                // Fetch allocations in parallel with returns if captured early
+                if (earlyAllocationTools.length > 0) {
+                  const ALLOCATION_BATCH_SIZE = 6;
+                  const allocationBatches: any[][] = [];
+                  for (let ai = 0; ai < earlyAllocationTools.length; ai += ALLOCATION_BATCH_SIZE) {
+                    allocationBatches.push(earlyAllocationTools.slice(ai, ai + ALLOCATION_BATCH_SIZE));
+                  }
+                  console.log(`[Client] 🗂️ Starting ${allocationBatches.length} allocation batch(es) in parallel with returns...`);
+                  
+                  allocationBatches.forEach((batch, index) => {
+                    promises.push(
+                      fetch('/api/fetch-allocations', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tools: batch }),
+                      }).then(async (resp) => {
+                        if (!resp.ok) {
+                          const errData = await resp.json().catch(() => null);
+                          console.warn(`[Client] ⚠️ Allocation batch ${index + 1} failed: ${errData?.error || `HTTP ${resp.status}`}`);
+                          return { type: 'allocations' as const, data: [] };
+                        }
+                        const data = await resp.json();
+                        console.log(`[Client] ✅ Allocation batch ${index + 1} complete: ${data.allocations?.length ?? 0} allocations`);
+                        return { type: 'allocations' as const, data: data.allocations || [] };
+                      }).catch(err => {
+                        console.warn(`[Client] ⚠️ Allocation fetch failed (non-fatal):`, err);
+                        return { type: 'allocations' as const, data: [] };
+                      })
+                    );
+                  });
+                }
+                
+                // Wait for all batches to complete (Yahoo + Morningstar + allocations)
                 const results = await Promise.all(promises);
                 
                 // Stop progress simulation
                 clearInterval(progressInterval);
                 
-                // Merge all returns
-                allReturns = results.flat();
+                // Separate results by type
+                for (const result of results) {
+                  if (result.type === 'returns') {
+                    allReturns.push(...result.data);
+                  } else if (result.type === 'allocations') {
+                    earlyAllocations.push(...result.data);
+                  }
+                }
                 
-                console.log(`[Client] ✅ Combined ${allReturns.length} returns from all sources`);
+                console.log(`[Client] ✅ Combined ${allReturns.length} returns${earlyAllocations.length > 0 ? ` + ${earlyAllocations.length} allocations` : ''} from all sources`);
                 
                 // RETRY LOGIC: Identify items with errors (not "no data") and retry once
                 const itemsWithErrors = allReturns.filter((item: any) => item.error);
@@ -452,13 +494,14 @@ export default function Home() {
                 throw fetchError;
               }
               
-              // Retry /api/analyze with precomputed returns
+              // Retry /api/analyze with precomputed returns (and allocations if fetched early)
               const retryResponse = await fetch('/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   ...requestData,
                   precomputedReturns: allReturns,
+                  ...(earlyAllocations.length > 0 ? { precomputedAllocations: earlyAllocations } : {}),
                 }),
               });
               

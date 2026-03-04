@@ -188,10 +188,14 @@ export async function POST(request: NextRequest) {
           // Special handling for TOO_MANY_HOLDINGS error - pass toolsToExecute to frontend
           } else if (result.error === 'TOO_MANY_HOLDINGS' && result.toolsToExecute) {
             console.log(`[API] Detected large portfolio: ${result.toolsToExecute.length} holdings need returns`);
+            if (result.allocationToolsToExecute) {
+              console.log(`[API] Also captured ${result.allocationToolsToExecute.length} allocation tools for parallel fetching`);
+            }
             encode({
               type: 'error',
               error: 'TOO_MANY_HOLDINGS',
               toolsToExecute: result.toolsToExecute,
+              ...(result.allocationToolsToExecute ? { allocationToolsToExecute: result.allocationToolsToExecute } : {}),
               message: `Large portfolio detected (${result.toolsToExecute.length} holdings without returns). Switching to optimized 2-step analysis...`
             });
           } else {
