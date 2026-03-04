@@ -501,6 +501,8 @@ export async function searchFundReturnMorningstar(
   fundManager: string,
   timeframePeriod: string
 ): Promise<SearchResult> {
+  const MAX_ATTEMPTS = 2;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
   let browser;
   try {
     console.log(`[Morningstar] Fetching return for ${fundName} (${fundManager})`);
@@ -960,12 +962,22 @@ export async function searchFundReturnMorningstar(
         } catch {}
       }
     }
+    if (attempt < MAX_ATTEMPTS) {
+      console.warn(`[Morningstar] Attempt ${attempt} failed for ${fundName}: ${error instanceof Error ? error.message : 'Unknown error'}. Retrying in 3s...`);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      continue;
+    }
     console.error(`[Morningstar] Error fetching return for ${fundName}:`, error);
     return {
       description: `Failed to retrieve Morningstar data for ${fundName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       sources: [],
     };
   }
+  } // end retry loop
+  return {
+    description: `Failed to retrieve Morningstar data for ${fundName} after ${MAX_ATTEMPTS} attempts`,
+    sources: [],
+  };
 }
 
 /**
@@ -1541,7 +1553,7 @@ export const SEARCH_TOOLS = [
   },
   {
     name: "search_holding_return",
-    description: "FALLBACK TOOL - Fetch historical return data for a specific holding using Yahoo Finance when return data is NOT available in the portfolio documents. Use this ONLY when the portfolio does not contain return/performance data for a holding. Requires ticker symbol (e.g., 'CBA.AX' for Australian stocks - always add .AX suffix for ASX stocks, 'AAPL' for US stocks) and the exact time period from the portfolio statement.",
+    description: "FALLBACK TOOL - Fetch historical return data for a specific holding using Yahoo Finance when return data is NOT available in the portfolio documents. Use this for ALL holdings with a ticker symbol — including ASX ETFs (e.g. VDIF.AX, VCF.AX, VAS.AX, VGS.AX), direct shares (e.g. CBA.AX, BHP.AX), and US stocks (e.g. AAPL). Always add .AX suffix for ASX-listed holdings. Do NOT use search_fund_return_morningstar for any holding that has a stock ticker.",
     input_schema: {
       type: "object",
       properties: {
@@ -1563,7 +1575,7 @@ export const SEARCH_TOOLS = [
   },
   {
     name: "search_fund_return_morningstar",
-    description: "FALLBACK TOOL for managed funds - Fetch 1-year return from Morningstar.com.au when return data is NOT available in portfolio documents and the fund has no ticker symbol for Yahoo Finance. Use ONLY for managed funds without stock tickers. This tool is slower (3-5 seconds per fund) as it uses web scraping.",
+    description: "FALLBACK TOOL for managed funds - Fetch 1-year return from Morningstar.com.au when return data is NOT available in portfolio documents. Use ONLY for managed funds that have NO stock ticker (e.g. 'IOF0145AU', 'ETL7377AU' style APIR codes). Do NOT use this for ETFs or any holding with an ASX ticker (e.g. VDIF, VCF, VAS, VGS) — use search_holding_return instead. This tool is slower (30-60 seconds per fund) as it uses web scraping.",
     input_schema: {
       type: "object",
       properties: {
