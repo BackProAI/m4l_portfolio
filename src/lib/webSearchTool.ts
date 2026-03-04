@@ -499,13 +499,14 @@ async function launchBrowser() {
 export async function searchFundReturnMorningstar(
   fundName: string,
   fundManager: string,
-  timeframePeriod: string
+  timeframePeriod: string,
+  apirCode?: string
 ): Promise<SearchResult> {
   const MAX_ATTEMPTS = 2;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
   let browser;
   try {
-    console.log(`[Morningstar] Fetching return for ${fundName} (${fundManager})`);
+    console.log(`[Morningstar] Fetching return for ${fundName} (${fundManager})${apirCode ? ` [APIR: ${apirCode}]` : ''}`);
 
     // Step 1: Use Brave Search to find the Morningstar fund page
     if (!process.env.BRAVE_SEARCH_API_KEY) {
@@ -516,48 +517,198 @@ export async function searchFundReturnMorningstar(
       };
     }
 
-    const searchQuery = `${fundName} ${fundManager} site:morningstar.com.au`;
-    const searchResponse = await fetch(
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5`,
-      {
-        headers: {
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip',
-          'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY,
-        },
+    // Also try to extract APIR code from fund name if not explicitly provided
+    // APIR pattern: 3 uppercase letters + 4 digits + "AU" (e.g., RIM0031AU, EVO2608AU)
+    if (!apirCode) {
+      const apirMatch = fundName.match(/\b([A-Z]{3}\d{4}AU)\b/i);
+      if (apirMatch) {
+        apirCode = apirMatch[1].toUpperCase();
+        console.log(`[Morningstar] Extracted APIR code from fund name: ${apirCode}`);
       }
-    );
-
-    if (!searchResponse.ok) {
-      throw new Error(`Brave Search API error: ${searchResponse.status}`);
     }
 
-    const searchData = await searchResponse.json();
-    const results = searchData.web?.results || [];
+    // Clean the fund name for search: remove parenthetical codes, dollar signs
+    const cleanedFundName = fundName
+      .replace(/\([^)]*\)/g, '') // Remove all parenthetical codes
+      .replace(/\$/g, '')       // Remove dollar signs  
+      .replace(/\s+/g, ' ')     // Normalize whitespace
+      .trim();
+    
+    console.log(`[Morningstar] Cleaned fund name: "${cleanedFundName}"`);
 
-    // Step 2: Extract fund ID from Morningstar URL
+    // Build search queries: primary by fund name, secondary by APIR code
+    const searchQuery1 = `${cleanedFundName} ${fundManager} site:morningstar.com.au`;
+    const searchPromises: Promise<Response>[] = [
+      fetch(
+        `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery1)}&count=5`,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY!,
+          },
+        }
+      )
+    ];
+    
+    // If we have an APIR code, run a second search with it (much more precise)
+    if (apirCode) {
+      const searchQuery2 = `${apirCode} site:morningstar.com.au`;
+      console.log(`[Morningstar] Running APIR search: "${searchQuery2}"`);
+      searchPromises.push(
+        fetch(
+          `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery2)}&count=5`,
+          {
+            headers: {
+              'Accept': 'application/json',
+              'Accept-Encoding': 'gzip',
+              'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY!,
+            },
+          }
+        )
+      );
+    }
+    
+    const searchResponses = await Promise.all(searchPromises);
+    
+    // Collect ALL candidate fund IDs from both searches (deduplicated, preserving order)
+    // APIR search results are prioritized (added first if available)
+    const candidateFundIds: { id: string; url: string; source: string }[] = [];
+    const seenIds = new Set<string>();
+    
+    // Process APIR search results FIRST (index 1) if available, then name search (index 0)
+    const processOrder = apirCode ? [1, 0] : [0];
+    const sourceLabels = ['name-search', 'apir-search'];
+    
+    for (const idx of processOrder) {
+      const searchResponse = searchResponses[idx];
+      if (!searchResponse || !searchResponse.ok) {
+        console.warn(`[Morningstar] Search ${sourceLabels[idx]} returned ${searchResponse?.status || 'no response'}, skipping`);
+        continue;
+      }
+      const searchData = await searchResponse.json();
+      const results = searchData.web?.results || [];
+      
+      for (const result of results) {
+        const url = result.url || '';
+        const fundIdMatch = url.match(/\/investments\/security\/fund\/(\d+)/);
+        if (fundIdMatch && !seenIds.has(fundIdMatch[1])) {
+          seenIds.add(fundIdMatch[1]);
+          candidateFundIds.push({ id: fundIdMatch[1], url, source: sourceLabels[idx] });
+        }
+      }
+    }
+    
+    console.log(`[Morningstar] Found ${candidateFundIds.length} candidate fund IDs: ${candidateFundIds.map(c => `${c.id} (${c.source})`).join(', ')}`);
+    
+    if (candidateFundIds.length === 0) {
+      return {
+        description: `No Morningstar listing found for ${fundName} (${fundManager}). Fund may not be available on Morningstar.com.au.`,
+        sources: [],
+      };
+    }
+    
+    // Helper: generate keywords from a fund name for fuzzy matching
+    const getKeywords = (name: string): Set<string> => {
+      const expanded = name
+        .replace(/\bInt(?:l)?\b/gi, 'International')
+        .replace(/\bPr(?:op)?\b/gi, 'Property')
+        .replace(/\bSec(?:s)?\b/gi, 'Securities')
+        .replace(/\bHd(?:g(?:d|ed)?)?\b/gi, 'Hedged')
+        .replace(/\bCl\b/gi, 'Class')
+        .replace(/\bFd\b/gi, 'Fund')
+        .replace(/\bIdx\b/gi, 'Index')
+        .replace(/\bInfras\b/gi, 'Infrastructure')
+        .replace(/\bAus\b/gi, 'Australian')
+        .replace(/\bGlbl\b/gi, 'Global')
+        .replace(/\bLstd\b/gi, 'Listed')
+        .replace(/\bPriv\b/gi, 'Private')
+        .replace(/\bCred\b/gi, 'Credit')
+        .replace(/\bCorp\b/gi, 'Corporate')
+        .replace(/\bInd\b/gi, 'Index')
+        .replace(/\bFix(?:ed)?\b/gi, 'Fixed');
+      return new Set(
+        expanded.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2)
+      );
+    };
+    
+    // Verify candidates by checking the fund name on the Morningstar page
     let fundId: string | null = null;
     let foundUrl: string | null = null;
-
-    for (const result of results) {
-      const url = result.url || '';
-      // Look for /investments/security/fund/{id} pattern
-      const fundIdMatch = url.match(/\/investments\/security\/fund\/(\d+)/);
-      if (fundIdMatch) {
-        fundId = fundIdMatch[1];
-        foundUrl = url;
-        break;
+    const searchKeywords = getKeywords(cleanedFundName);
+    console.log(`[Morningstar] Search keywords: ${[...searchKeywords].join(', ')}`);
+    
+    for (const candidate of candidateFundIds) {
+      try {
+        const overviewUrl = `https://www.morningstar.com.au/investments/security/fund/${candidate.id}/overview`;
+        const verifyResponse = await fetch(overviewUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          redirect: 'follow',
+        });
+        
+        if (!verifyResponse.ok) {
+          console.warn(`[Morningstar] Could not fetch overview for candidate ${candidate.id}: ${verifyResponse.status}`);
+          continue;
+        }
+        
+        const html = await verifyResponse.text();
+        
+        // Check if APIR code appears on the page (most reliable match)
+        if (apirCode) {
+          const apirFoundOnPage = html.includes(apirCode);
+          if (apirFoundOnPage) {
+            fundId = candidate.id;
+            foundUrl = candidate.url;
+            console.log(`[Morningstar] ✅ APIR match! Fund ID ${candidate.id} has APIR ${apirCode} on page (source: ${candidate.source})`);
+            break;
+          }
+        }
+        
+        // Fallback: fuzzy keyword matching on fund name
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+        const pageFundName = h1Match?.[1]?.trim() || titleMatch?.[1]?.trim() || '';
+        
+        console.log(`[Morningstar] Candidate ${candidate.id} (${candidate.source}): page name = "${pageFundName}"`);
+        
+        if (pageFundName) {
+          const pageKeywords = getKeywords(pageFundName);
+          let matchCount = 0;
+          for (const keyword of searchKeywords) {
+            if (pageKeywords.has(keyword)) matchCount++;
+          }
+          const matchRatio = searchKeywords.size > 0 ? matchCount / searchKeywords.size : 0;
+          console.log(`[Morningstar] Candidate ${candidate.id}: keyword match ${matchCount}/${searchKeywords.size} (${(matchRatio * 100).toFixed(0)}%)`);
+          
+          if (matchRatio >= 0.4) {
+            fundId = candidate.id;
+            foundUrl = candidate.url;
+            console.log(`[Morningstar] ✅ Verified fund ID ${candidate.id}: "${pageFundName}" matches "${cleanedFundName}"`);
+            break;
+          } else {
+            console.log(`[Morningstar] ❌ Rejected fund ID ${candidate.id}: "${pageFundName}" does not match "${cleanedFundName}"`);
+          }
+        }
+      } catch (verifyError) {
+        console.warn(`[Morningstar] Could not verify candidate ${candidate.id}:`, verifyError);
       }
     }
-
+    
+    // If no candidate passed verification, fall back to first result
+    if (!fundId && candidateFundIds.length > 0) {
+      fundId = candidateFundIds[0].id;
+      foundUrl = candidateFundIds[0].url;
+      console.log(`[Morningstar] ⚠️ No candidate verified, falling back to first result: ${fundId}`);
+    }
+    
     if (!fundId) {
       return {
         description: `No Morningstar listing found for ${fundName} (${fundManager}). Fund may not be available on Morningstar.com.au.`,
         sources: [],
       };
     }
-
-    console.log(`[Morningstar] Found fund ID: ${fundId}`);
+    
+    console.log(`[Morningstar] Using fund ID: ${fundId}`);
 
     // Step 3: Navigate to performance page and scrape data
     const performanceUrl = `https://www.morningstar.com.au/investments/security/fund/${fundId}/performance`;
@@ -1737,6 +1888,10 @@ export const SEARCH_TOOLS = [
           type: "string",
           description: "Exact time period string from the portfolio statement (e.g., '1 Jul 2024 to 30 Jun 2025'). Used for context but Morningstar returns most recent 1-year data.",
         },
+        apir_code: {
+          type: "string",
+          description: "Optional APIR/Morningstar identifier code (pattern: 3 letters + 4 digits + 'AU', e.g., 'EVO2608AU', 'RIM0031AU', 'SCH0038AU'). When provided, enables direct lookup on Morningstar for accurate fund matching. Found in parentheses in fund names or in dedicated APIR/code columns.",
+        },
       },
       required: ["fund_name", "fund_manager", "timeframe_period"],
     },
@@ -1825,7 +1980,8 @@ export async function executeSearchTool(
         result = await searchFundReturnMorningstar(
           toolInput.fund_name,
           toolInput.fund_manager,
-          toolInput.timeframe_period
+          toolInput.timeframe_period,
+          toolInput.apir_code
         );
         return `${result.description}\n\nSources: ${result.sources.join(', ') || 'None'}`;
 

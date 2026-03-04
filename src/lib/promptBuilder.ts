@@ -128,6 +128,11 @@ ONLY for holdings that completely lack return data in the documents (no Performa
      * fund_name: The full fund name (e.g., "Metrics Direct Income Fund")
      * fund_manager: The fund manager name (e.g., "Metrics Credit Partners")
      * timeframe_period: From Step 1 (exact period or calculated lookback)
+     * apir_code: (IMPORTANT) If the fund has an APIR/Morningstar identifier code (pattern: 3 letters + 4 digits + "AU", e.g., "EVO2608AU", "RIM0031AU", "SCH0038AU"), ALWAYS pass it. Look for it in:
+       - Parentheses in the fund name: e.g., "Metrics Direct Income Fund (EVO2608AU)" → apir_code = "EVO2608AU"
+       - A dedicated column (e.g., "APIR Code", "Morningstar ID", "Fund Code", "Product Code")
+       - Sometimes there are multiple parenthetical codes — the APIR code matches pattern /[A-Z]{3}\d{4}AU/ (e.g., in "Russell Int Pr Sec $A Hd Cl A (FR091) (RIM0031AU)", the APIR is "RIM0031AU", not "FR091")
+       - If no APIR code is found, omit this parameter
    - CRITICAL: Extract BOTH values from the tool response:
      * totalReturnForTimeframe: Parse the return percentage from the response
      * performanceTimeframe: Parse the ACTUAL timeframe from the response (pattern: "for the period X to Y")
