@@ -1020,11 +1020,12 @@ async function searchFundAssetAllocationMorningstar(
     }
 
     // Helper to extract a Morningstar security URL from Brave results.
-    // Matches /investments/security/{type}/{id} where type is fund, etf, lpt etc. and id is numeric.
+    // Matches /investments/security/{type}/{id} where type is fund, etf, ASX etc.
+    // and id is numeric (fund/12345) or an ASX ticker (ASX/VDIF).
     const extractPortfolioUrl = (results: any[]): string | null => {
       for (const result of results) {
         const url = result.url || '';
-        const match = url.match(/\/investments\/security\/(\w+)\/(\d+)/);
+        const match = url.match(/\/investments\/security\/(\w+)\/([A-Za-z0-9]+)/);
         if (match) {
           const [, secType, secId] = match;
           return `https://www.morningstar.com.au/investments/security/${secType}/${secId}/portfolio`;
@@ -1053,11 +1054,11 @@ async function searchFundAssetAllocationMorningstar(
       portfolioUrl = extractPortfolioUrl(searchData.web?.results || []);
     }
 
-    // Last resort for ETFs: construct the direct Morningstar ETF portfolio URL from the ticker.
-    // Morningstar.com.au uses /investments/security/etf/{TICKER}/portfolio for ASX ETFs.
+    // Last resort for ETFs: construct the direct Morningstar ASX portfolio URL from the ticker.
+    // Morningstar.com.au uses /investments/security/ASX/{TICKER}/portfolio for ASX-listed ETFs.
     if (!portfolioUrl && baseTicker) {
-      portfolioUrl = `https://www.morningstar.com.au/investments/security/etf/${baseTicker}/portfolio`;
-      console.log(`[Morningstar Allocation] No Brave result found — trying direct ETF URL: ${portfolioUrl}`);
+      portfolioUrl = `https://www.morningstar.com.au/investments/security/ASX/${baseTicker}/portfolio`;
+      console.log(`[Morningstar Allocation] No Brave result found — trying direct ASX URL: ${portfolioUrl}`);
     }
 
     if (!portfolioUrl) {
@@ -1416,12 +1417,14 @@ export async function searchFundAssetAllocation(
           // These symbols are well-known and their asset classes cannot change without a fund
           // restructure, so a lookup table is safe and 200% accurate.
           if (!assetClass) {
-            const sym = (h.symbol || '').replace(/\.(AX|ASX)$/i, '').toUpperCase();
+            // Strip common exchange suffixes: .AX (ASX), .L (London), etc.
+            const sym = (h.symbol || '').replace(/\.\w+$/i, '').toUpperCase();
             const KNOWN_ETF_CLASS: Record<string, string> = {
               'VHY':  'Australian Shares',          // Vanguard Australian Shares High Yield ETF
               'VAS':  'Australian Shares',          // Vanguard Australian Shares Index ETF
               'VGS':  'International Shares',       // Vanguard MSCI Index International Shares ETF
               'VGE':  'International Shares',       // Vanguard Emerging Markets Shares Index ETF
+              'VHYD': 'International Shares',       // Vanguard FTSE All-World High Dividend Yield ETF (London-listed)
               'VIF':  'International Fixed Interest',// Vanguard International Fixed Interest Index ETF (Hedged)
               'VGB':  'Australian Fixed Interest',  // Vanguard Australian Government Bond Index ETF
               'VAF':  'Australian Fixed Interest',  // Vanguard Australian Fixed Interest Index ETF
