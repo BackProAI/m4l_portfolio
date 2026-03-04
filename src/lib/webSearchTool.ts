@@ -1458,9 +1458,12 @@ export async function searchFundAssetAllocation(
           geoMap: Object.keys(geoMap).length > 0 ? geoMap : 'none',
         });
 
-        // If >40% of holdings were classified across >1 asset class, return an authoritative geographic breakdown.
+        // If 100% of holdings were classified across >1 asset class, return an authoritative geographic breakdown.
         // Claude must use these exact percentages instead of estimating.
-        if (geoClassifiedPct > 40 && Object.keys(geoMap).length > 1) {
+        // We require full coverage because partial data (e.g. 57% for VDIF) silently drops large
+        // asset classes like Domestic Fixed Interest and Property, producing inaccurate pie charts.
+        // Morningstar always has the complete breakdown so we fall back there for anything less.
+        if (geoClassifiedPct >= 100 && Object.keys(geoMap).length > 1) {
           const geoStr = Object.entries(geoMap)
             .sort((a, b) => b[1] - a[1])
             .map(([cls, pct]) => `${cls}: ${pct.toFixed(1)}%`)
