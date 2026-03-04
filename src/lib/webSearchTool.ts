@@ -989,43 +989,70 @@ async function searchFundAssetAllocationMorningstar(
       };
     }
 
-    // Step 1: Find Morningstar fund ID via Brave search
-    const searchQuery = fundManager
-      ? `${fundName} ${fundManager} site:morningstar.com.au`
-      : `${fundName} ${ticker ?? ''} site:morningstar.com.au`;
+    // Step 1: Find Morningstar fund page via Brave search.
+    // Try up to two queries: (a) fund name, (b) ticker — so Vanguard ETFs that aren't indexed
+    // by full name on Morningstar can be found via their ASX ticker.
+    const baseTicker = ticker ? ticker.replace(/\.(AX|ASX)$/i, '') : null;
 
-    const searchResponse = await fetch(
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5`,
-      {
-        headers: {
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip',
-          'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY,
-        },
-      }
-    );
-
-    if (!searchResponse.ok) throw new Error(`Brave Search API error: ${searchResponse.status}`);
-
-    const searchData = await searchResponse.json();
-    const results = searchData.web?.results || [];
-
-    let fundId: string | null = null;
-    for (const result of results) {
-      const url = result.url || '';
-      const match = url.match(/\/investments\/security\/fund\/(\d+)/);
-      if (match) { fundId = match[1]; break; }
+    const searchQueries: string[] = [];
+    if (fundManager) {
+      searchQueries.push(`${fundName} ${fundManager} site:morningstar.com.au`);
+    } else {
+      searchQueries.push(`${fundName} ${ticker ?? ''} site:morningstar.com.au`.trim());
+    }
+    if (baseTicker) {
+      // Ticker-based query as fallback — catches ETFs indexed by ASX ticker rather than full name
+      searchQueries.push(`${baseTicker} site:morningstar.com.au`);
     }
 
-    if (!fundId) {
+    // Helper to extract a Morningstar security URL from Brave results.
+    // Matches /investments/security/{type}/{id} where type is fund, etf, lpt etc. and id is numeric.
+    const extractPortfolioUrl = (results: any[]): string | null => {
+      for (const result of results) {
+        const url = result.url || '';
+        const match = url.match(/\/investments\/security\/(\w+)\/(\d+)/);
+        if (match) {
+          const [, secType, secId] = match;
+          return `https://www.morningstar.com.au/investments/security/${secType}/${secId}/portfolio`;
+        }
+      }
+      return null;
+    };
+
+    let portfolioUrl: string | null = null;
+
+    for (const searchQuery of searchQueries) {
+      if (portfolioUrl) break;
+      console.log(`[Morningstar Allocation] Brave search: "${searchQuery}"`);
+      const searchResponse = await fetch(
+        `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchQuery)}&count=5`,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY,
+          },
+        }
+      );
+      if (!searchResponse.ok) throw new Error(`Brave Search API error: ${searchResponse.status}`);
+      const searchData = await searchResponse.json();
+      portfolioUrl = extractPortfolioUrl(searchData.web?.results || []);
+    }
+
+    // Last resort for ETFs: construct the direct Morningstar ETF portfolio URL from the ticker.
+    // Morningstar.com.au uses /investments/security/etf/{TICKER}/portfolio for ASX ETFs.
+    if (!portfolioUrl && baseTicker) {
+      portfolioUrl = `https://www.morningstar.com.au/investments/security/etf/${baseTicker}/portfolio`;
+      console.log(`[Morningstar Allocation] No Brave result found — trying direct ETF URL: ${portfolioUrl}`);
+    }
+
+    if (!portfolioUrl) {
       console.log(`[Morningstar Allocation] No Morningstar listing found for ${fundName}`);
       return {
         description: `${fundName} - No Morningstar listing found. Cannot determine asset allocation — do NOT estimate or guess.`,
         sources: [],
       };
     }
-
-    const portfolioUrl = `https://www.morningstar.com.au/investments/security/fund/${fundId}/portfolio`;
     console.log(`[Morningstar Allocation] Navigating to: ${portfolioUrl}`);
 
     browser = await launchBrowser();
@@ -1213,18 +1240,20 @@ export async function searchFundAssetAllocation(
 ): Promise<SearchResult> {
   // Try Yahoo Finance first if ticker is available
   if (ticker) {
+    // Normalise ticker: ASX ETFs are often passed without the .AX suffix (e.g. "VDIF" instead of "VDIF.AX").
+    // If the ticker has no exchange suffix (no dot) treat it as an ASX ticker and append .AX.
+    const normalisedTicker = ticker.includes('.') ? ticker : `${ticker}.AX`;
+    if (normalisedTicker !== ticker) {
+      console.log(`[Asset Allocation] Normalised ticker: ${ticker} → ${normalisedTicker}`);
+    }
     try {
-      console.log(`[Asset Allocation] Trying Yahoo Finance quoteSummary for ${ticker}`);
+      console.log(`[Asset Allocation] Trying Yahoo Finance quoteSummary for ${normalisedTicker}`);
       // @ts-ignore - Yahoo Finance types may not be fully complete
-      const result = await yahooFinance.quoteSummary(ticker, { modules: ['topHoldings', 'fundProfile'] });
+      const result = await yahooFinance.quoteSummary(normalisedTicker, { modules: ['topHoldings', 'fundProfile'] });
 
       const topHoldings = result.topHoldings;
       if (topHoldings) {
-        const allocations: string[] = [];
-        const stockPct = topHoldings.stockPosition != null ? (topHoldings.stockPosition * 100) : null;
-        const bondPct = topHoldings.bondPosition != null ? (topHoldings.bondPosition * 100) : null;
         const cashPct = topHoldings.cashPosition != null ? (topHoldings.cashPosition * 100) : null;
-        const otherPct = topHoldings.otherPosition != null ? (topHoldings.otherPosition * 100) : null;
 
         // Attempt geographic classification directly from sub-holding names.
         // This handles fund-of-funds (e.g. Vanguard diversified ETFs that hold VHY, VIF, VGB etc.)
@@ -1283,46 +1312,21 @@ export async function searchFundAssetAllocation(
               .join(', ');
             subHoldingsContext = ` Underlying holdings: ${topNames}.`;
           }
-          console.log(`[Asset Allocation] ✅ Geographic classification for ${ticker}: ${geoStr}`);
+          console.log(`[Asset Allocation] ✅ Geographic classification for ${normalisedTicker}: ${geoStr}`);
           return {
-            description: `${fundName} (${ticker}) geographic asset allocation derived from underlying holdings analysis: ${geoStr}. CRITICAL: Use these EXACT geographic percentages to split this holding's dollar value across asset classes. Do NOT estimate, adjust, or override these values.${subHoldingsContext}`,
-            sources: [`Yahoo Finance - ${ticker}`]
+            description: `${fundName} (${normalisedTicker}) geographic asset allocation derived from underlying holdings analysis: ${geoStr}. CRITICAL: Use these EXACT geographic percentages to split this holding's dollar value across asset classes. Do NOT estimate, adjust, or override these values.${subHoldingsContext}`,
+            sources: [`Yahoo Finance - ${normalisedTicker}`]
           };
         }
 
-        // Geo classification did not meet threshold — check if we have identifiable sub-holding tickers.
-        // If so, instruct Claude to look them up individually rather than guessing the geographic split.
-        if (topHoldings.holdings && topHoldings.holdings.length > 0) {
-          const subHoldings = topHoldings.holdings
-            .slice(0, 10)
-            .map((h: any) => {
-              const sym = h.symbol || '';
-              const name = h.holdingName || sym || 'Unknown';
-              const pct = ((h.holdingPercent || 0) * 100).toFixed(1);
-              return sym && sym !== name ? `${name} (${sym}): ${pct}%` : `${name}: ${pct}%`;
-            })
-            .join(', ');
-
-          if (stockPct != null && stockPct > 0) allocations.push(`Stocks/Equities: ${stockPct.toFixed(1)}%`);
-          if (bondPct != null && bondPct > 0) allocations.push(`Bonds/Fixed Interest: ${bondPct.toFixed(1)}%`);
-          if (cashPct != null && cashPct > 0) allocations.push(`Cash: ${cashPct.toFixed(1)}%`);
-          if (otherPct != null && otherPct > 0) allocations.push(`Other/Alternatives: ${otherPct.toFixed(1)}%`);
-
-          const allocStr = allocations.length > 0 ? `Top-level allocation: ${allocations.join(', ')}. ` : '';
-          console.log(`[Asset Allocation] ⚠️ Geo classification insufficient for ${ticker}, instructing Claude to look up sub-holdings`);
-          return {
-            description: `${fundName} (${ticker}) is a fund-of-funds. ${allocStr}Sub-holdings: ${subHoldings}. CRITICAL: Do NOT estimate or guess the Australian vs International geographic split. Instead, call search_fund_asset_allocation for each sub-holding ticker individually, then weight each result by the sub-holding percentage to derive the true geographic breakdown for this fund.`,
-            sources: [`Yahoo Finance - ${ticker}`]
-          };
-        }
-
-        // No sub-holdings and no usable geographic breakdown from Yahoo Finance.
-        // Fall through to Morningstar which has structured portfolio data.
+        // Geo classification did not meet threshold (sub-holding names/tickers were not classifiable,
+        // e.g. Yahoo Finance returned short tickers like "VHY", "VGB" without full fund names).
+        // Fall through to Morningstar, which has structured geographic portfolio data directly.
       }
 
-      console.log(`[Asset Allocation] Yahoo Finance had no usable geographic data for ${ticker}, falling back to Morningstar`);
+      console.log(`[Asset Allocation] Yahoo Finance had no usable geographic data for ${normalisedTicker}, falling back to Morningstar`);
     } catch (error) {
-      console.log(`[Asset Allocation] Yahoo Finance quoteSummary failed for ${ticker}:`, error instanceof Error ? error.message : error);
+      console.log(`[Asset Allocation] Yahoo Finance quoteSummary failed for ${normalisedTicker}:`, error instanceof Error ? error.message : error);
     }
   }
 
