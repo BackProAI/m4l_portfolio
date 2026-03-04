@@ -694,51 +694,19 @@ export async function searchFundReturnMorningstar(
       }
     }
     
-    // If no candidate passed verification, use Puppeteer to search Morningstar directly
-    // (Morningstar's search page is JS-rendered — plain fetch() returns empty results)
+    // If no candidate passed verification, use Puppeteer to search via Morningstar's
+    // nav bar autocomplete (type into search input → wait for dropdown results).
+    // This is faster and more reliable than loading the full search results page.
     if (!fundId && apirCode) {
-      console.log(`[Morningstar] ⚠️ No candidate verified. Using Puppeteer to search Morningstar for APIR: ${apirCode}`);
+      console.log(`[Morningstar] ⚠️ No candidate verified. Using Puppeteer search bar for APIR: ${apirCode}`);
       try {
         browser = await launchBrowser();
         const searchPage = await browser.newPage();
         await searchPage.setViewport({ width: 1920, height: 1080 });
         
-        // Collect fund IDs from intercepted XHR responses (Morningstar's search API)
-        const interceptedFundIds: string[] = [];
-        searchPage.on('response', async (response) => {
-          try {
-            const url = response.url();
-            // Morningstar's search page makes internal API calls for results
-            if (url.includes('search') && response.status() === 200) {
-              const contentType = response.headers()['content-type'] || '';
-              if (contentType.includes('json')) {
-                const json = await response.json();
-                const jsonStr = JSON.stringify(json);
-                // Extract any fund IDs from the JSON response
-                const fundMatches = [...jsonStr.matchAll(/\/investments\/security\/fund\/(\d+)/g)];
-                for (const m of fundMatches) {
-                  if (!interceptedFundIds.includes(m[1])) {
-                    interceptedFundIds.push(m[1]);
-                  }
-                }
-                // Also check for 'securityId' or 'fundId' fields (common Morningstar API patterns)
-                const idMatches = [...jsonStr.matchAll(/"(?:securityId|fundId|id)":\s*"?(\d+)"?/g)];
-                for (const m of idMatches) {
-                  if (!interceptedFundIds.includes(m[1])) {
-                    interceptedFundIds.push(m[1]);
-                  }
-                }
-              }
-            }
-          } catch {
-            // Ignore response parsing errors
-          }
-        });
-        
-        // Navigate to Morningstar search page
-        const msSearchUrl = `https://www.morningstar.com.au/search/results?query=${encodeURIComponent(apirCode)}`;
-        console.log(`[Morningstar] Puppeteer navigating to: ${msSearchUrl}`);
-        await searchPage.goto(msSearchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        // Navigate to Morningstar homepage
+        console.log(`[Morningstar] Puppeteer navigating to morningstar.com.au`);
+        await searchPage.goto('https://www.morningstar.com.au', { waitUntil: 'networkidle2', timeout: 30000 });
         
         // Handle the user type modal if present
         try {
@@ -755,7 +723,7 @@ export async function searchFundReturnMorningstar(
             return false;
           });
           if (investorClicked) {
-            console.log(`[Morningstar] Puppeteer search: clicked Individual Investor`);
+            console.log(`[Morningstar] Puppeteer: clicked Individual Investor`);
             await new Promise(resolve => setTimeout(resolve, 500));
             await searchPage.evaluate(() => {
               const buttons = Array.from(document.querySelectorAll('button'));
@@ -768,89 +736,125 @@ export async function searchFundReturnMorningstar(
           // Modal may not appear — that's fine
         }
         
-        // Wait for search results to render
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // Type into the nav bar search input and wait for autocomplete dropdown
+        const searchTerms = [apirCode, cleanedFundName];
         
-        // Extract fund IDs from the rendered DOM
-        const domFundIds = await searchPage.evaluate(() => {
-          const links = Array.from(document.querySelectorAll('a[href*="/investments/security/fund/"]'));
-          const ids: string[] = [];
-          for (const link of links) {
-            const href = (link as HTMLAnchorElement).href || link.getAttribute('href') || '';
-            const match = href.match(/\/investments\/security\/fund\/(\d+)/);
-            if (match && !ids.includes(match[1])) {
-              ids.push(match[1]);
-            }
-          }
-          return ids;
-        });
-        
-        // Merge DOM results with intercepted XHR results (deduped)
-        const puppeteerFundIds = [...new Set([...domFundIds, ...interceptedFundIds])];
-        console.log(`[Morningstar] Puppeteer search found ${puppeteerFundIds.length} fund IDs (DOM: ${domFundIds.length}, XHR: ${interceptedFundIds.length}): ${puppeteerFundIds.join(', ')}`);
-        
-        // If no results with APIR, try searching with expanded fund name
-        if (puppeteerFundIds.length === 0) {
-          console.log(`[Morningstar] No results for APIR code, trying expanded fund name search...`);
-          const expandedName = cleanedFundName
-            .replace(/\bInt(?:l)?\b/gi, 'International')
-            .replace(/\bPr(?:op)?\b/gi, 'Property')
-            .replace(/\bSec(?:s)?\b/gi, 'Securities')
-            .replace(/\bHd(?:g(?:d|ed)?)?\b/gi, 'Hedged');
-          const nameSearchUrl = `https://www.morningstar.com.au/search/results?query=${encodeURIComponent(expandedName)}`;
-          console.log(`[Morningstar] Puppeteer navigating to: ${nameSearchUrl}`);
-          await searchPage.goto(nameSearchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-          await new Promise(resolve => setTimeout(resolve, 3000));
+        for (const searchTerm of searchTerms) {
+          if (fundId) break; // Already found
           
-          const nameFundIds = await searchPage.evaluate(() => {
-            const links = Array.from(document.querySelectorAll('a[href*="/investments/security/fund/"]'));
-            const ids: string[] = [];
-            for (const link of links) {
-              const href = (link as HTMLAnchorElement).href || link.getAttribute('href') || '';
-              const match = href.match(/\/investments\/security\/fund\/(\d+)/);
-              if (match && !ids.includes(match[1])) {
-                ids.push(match[1]);
-              }
+          console.log(`[Morningstar] Typing "${searchTerm}" into search bar...`);
+          
+          // Find and click the search input to open the search bar
+          const inputFound = await searchPage.evaluate(() => {
+            // Try multiple selectors for the search input
+            const input = document.querySelector('input.mds-search-field__input__mca-dfd') 
+              || document.querySelector('input[placeholder*="Search"]')
+              || document.querySelector('.search-bar input[type="text"]');
+            if (input) {
+              (input as HTMLElement).click();
+              (input as HTMLElement).focus();
+              return true;
             }
-            return ids;
+            return false;
           });
           
-          for (const id of nameFundIds) {
-            if (!puppeteerFundIds.includes(id)) puppeteerFundIds.push(id);
+          if (!inputFound) {
+            console.log(`[Morningstar] Could not find search input on page`);
+            continue;
           }
-          console.log(`[Morningstar] After name search: ${puppeteerFundIds.length} total fund IDs: ${puppeteerFundIds.join(', ')}`);
+          
+          // Clear any existing text and type the search term
+          await searchPage.evaluate(() => {
+            const input = document.querySelector('input.mds-search-field__input__mca-dfd')
+              || document.querySelector('input[placeholder*="Search"]')
+              || document.querySelector('.search-bar input[type="text"]');
+            if (input) (input as HTMLInputElement).value = '';
+          });
+          await searchPage.type(
+            'input.mds-search-field__input__mca-dfd, input[placeholder*="Search"], .search-bar input[type="text"]',
+            searchTerm,
+            { delay: 50 } // Simulate realistic typing to trigger autocomplete
+          );
+          
+          // Wait for autocomplete dropdown results to appear
+          console.log(`[Morningstar] Waiting for autocomplete results...`);
+          try {
+            await searchPage.waitForSelector(
+              '.mds-search-results__mca-dfd a[href*="/investments/security/fund/"], .search-results a[href*="/investments/security/fund/"]',
+              { timeout: 8000 }
+            );
+          } catch {
+            console.log(`[Morningstar] No fund results appeared for "${searchTerm}"`);
+            // Clear the input for the next search term
+            await searchPage.evaluate(() => {
+              const input = document.querySelector('input.mds-search-field__input__mca-dfd')
+                || document.querySelector('input[placeholder*="Search"]')
+                || document.querySelector('.search-bar input[type="text"]');
+              if (input) {
+                (input as HTMLInputElement).value = '';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+            });
+            await new Promise(resolve => setTimeout(resolve, 500));
+            continue;
+          }
+          
+          // Small extra wait for all results to render
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Extract fund IDs from the autocomplete dropdown
+          const dropdownFundIds = await searchPage.evaluate(() => {
+            const links = Array.from(document.querySelectorAll(
+              '.mds-search-results__mca-dfd a[href*="/investments/security/fund/"], .search-results a[href*="/investments/security/fund/"]'
+            ));
+            return links.map(link => {
+              const href = (link as HTMLAnchorElement).href || link.getAttribute('href') || '';
+              const match = href.match(/\/investments\/security\/fund\/(\d+)/);
+              return match ? match[1] : null;
+            }).filter((id): id is string => id !== null);
+          });
+          
+          console.log(`[Morningstar] Autocomplete returned ${dropdownFundIds.length} fund IDs for "${searchTerm}": ${dropdownFundIds.join(', ')}`);
+          
+          // Verify each result by checking for APIR code on overview page
+          for (const msId of dropdownFundIds) {
+            if (seenIds.has(msId)) {
+              console.log(`[Morningstar] Skipping already-checked ID ${msId}`);
+              continue;
+            }
+            try {
+              const overviewUrl = `https://www.morningstar.com.au/investments/security/fund/${msId}/overview`;
+              const verifyResp = await fetch(overviewUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                redirect: 'follow',
+              });
+              if (verifyResp.ok) {
+                const html = await verifyResp.text();
+                if (html.includes(apirCode)) {
+                  fundId = msId;
+                  foundUrl = overviewUrl;
+                  console.log(`[Morningstar] ✅ Search bar: APIR ${apirCode} confirmed on fund ID ${msId}`);
+                  break;
+                }
+              }
+            } catch (e) {
+              console.warn(`[Morningstar] Could not verify search bar result ${msId}:`, e);
+            }
+          }
+          
+          // If only 1 result came back, trust it even without APIR page verification
+          // (some overview pages may not include APIR in server-rendered HTML)
+          if (!fundId && dropdownFundIds.length === 1 && searchTerm === apirCode) {
+            fundId = dropdownFundIds[0];
+            foundUrl = `https://www.morningstar.com.au/investments/security/fund/${fundId}`;
+            console.log(`[Morningstar] ✅ Search bar: single result for APIR search, trusting fund ID ${fundId}`);
+          }
         }
         
         // Close search page but keep browser alive for performance scraping
         await searchPage.close();
-        
-        // Verify each result by checking for APIR code on overview page
-        for (const msId of puppeteerFundIds) {
-          if (seenIds.has(msId)) {
-            console.log(`[Morningstar] Skipping already-checked ID ${msId}`);
-            continue;
-          }
-          try {
-            const overviewUrl = `https://www.morningstar.com.au/investments/security/fund/${msId}/overview`;
-            const verifyResp = await fetch(overviewUrl, {
-              headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-              redirect: 'follow',
-            });
-            if (verifyResp.ok) {
-              const html = await verifyResp.text();
-              if (html.includes(apirCode)) {
-                fundId = msId;
-                foundUrl = overviewUrl;
-                console.log(`[Morningstar] ✅ Puppeteer search: APIR ${apirCode} confirmed on fund ID ${msId}`);
-                break;
-              }
-            }
-          } catch (e) {
-            console.warn(`[Morningstar] Could not verify Puppeteer result ${msId}:`, e);
-          }
-        }
       } catch (e) {
-        console.warn(`[Morningstar] Puppeteer Morningstar search failed:`, e);
+        console.warn(`[Morningstar] Puppeteer search bar failed:`, e);
         // If browser was launched but search failed, close it to avoid leaking
         if (browser) {
           try { await browser.close(); } catch { /* ignore close errors */ }
