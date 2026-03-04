@@ -1170,6 +1170,29 @@ async function searchFundAssetAllocationMorningstar(
       return result;
     });
 
+    // If extraction didn't find ≥2 asset classes, dump page content BEFORE closing the browser
+    // so we can diagnose why the CSS selectors/text scan didn't match the page structure.
+    if (Object.keys(allocation).length < 2) {
+      try {
+        const pageDebug = await page.evaluate(() => {
+          const text = document.body.innerText || '';
+          return {
+            url: window.location.href,
+            title: document.title,
+            // Lines that contain a percentage — likely the allocation data we want
+            percentageLines: text.split('\n')
+              .map(l => l.trim())
+              .filter(l => l.length > 0 && /\d+\.?\d*\s*%/.test(l))
+              .slice(0, 25),
+            bodyPreview: text.substring(0, 600),
+          };
+        });
+        console.log(`[Morningstar Allocation] ⚠️ Extraction found ${Object.keys(allocation).length} classes for ${fundName}. Page debug:`, JSON.stringify(pageDebug));
+      } catch (e) {
+        console.log(`[Morningstar Allocation] Debug evaluate failed:`, e);
+      }
+    }
+
     // Close browser
     try {
       const pages = await browser.pages();
@@ -1286,6 +1309,30 @@ export async function searchFundAssetAllocation(
             assetClass = 'Alternatives';
           }
 
+          // Ticker-based fallback for Vanguard building-block ETFs.
+          // Yahoo Finance often returns bare ASX symbols (VHY, VIF, VGB etc.) as sub-holding
+          // identifiers for fund-of-funds (VDIF, VDHG etc.), with no holdingName supplied.
+          // These symbols are well-known and their asset classes cannot change without a fund
+          // restructure, so a lookup table is safe and 200% accurate.
+          if (!assetClass) {
+            const sym = (h.symbol || '').replace(/\.(AX|ASX)$/i, '').toUpperCase();
+            const KNOWN_ETF_CLASS: Record<string, string> = {
+              'VHY':  'Australian Shares',          // Vanguard Australian Shares High Yield ETF
+              'VAS':  'Australian Shares',          // Vanguard Australian Shares Index ETF
+              'VGS':  'International Shares',       // Vanguard MSCI Index International Shares ETF
+              'VGE':  'International Shares',       // Vanguard Emerging Markets Shares Index ETF
+              'VIF':  'International Fixed Interest',// Vanguard International Fixed Interest Index ETF (Hedged)
+              'VGB':  'Australian Fixed Interest',  // Vanguard Australian Government Bond Index ETF
+              'VAF':  'Australian Fixed Interest',  // Vanguard Australian Fixed Interest Index ETF
+              'VCF':  'International Fixed Interest',// Vanguard International Credit Securities ETF (Hedged)
+              'VAP':  'Australian Property',        // Vanguard Australian Property Securities Index ETF
+            };
+            assetClass = KNOWN_ETF_CLASS[sym] ?? null;
+            if (assetClass) {
+              console.log(`[Asset Allocation] Ticker lookup: ${sym} → ${assetClass} (${pct.toFixed(1)}%)`);
+            }
+          }
+
           if (assetClass) {
             geoMap[assetClass] = (geoMap[assetClass] || 0) + pct;
             geoClassifiedPct += pct;
@@ -1296,6 +1343,16 @@ export async function searchFundAssetAllocation(
           geoMap['Domestic Cash'] = cashPct;
           geoClassifiedPct += cashPct;
         }
+
+        // Log what Yahoo Finance returned so we can diagnose classification failures
+        console.log(`[Asset Allocation] ${normalisedTicker} topHoldings:`, {
+          count: (topHoldings.holdings || []).length,
+          firstFew: (topHoldings.holdings || []).slice(0, 4).map((h: any) => ({
+            name: h.holdingName || null, symbol: h.symbol, pct: ((h.holdingPercent || 0) * 100).toFixed(1) + '%'
+          })),
+          geoClassifiedPct: geoClassifiedPct.toFixed(1) + '%',
+          geoMap: Object.keys(geoMap).length > 0 ? geoMap : 'none',
+        });
 
         // If >40% of holdings were classified across >1 asset class, return an authoritative geographic breakdown.
         // Claude must use these exact percentages instead of estimating.
