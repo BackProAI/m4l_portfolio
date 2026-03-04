@@ -760,6 +760,123 @@ export default function Home() {
                     }, 100);
                     return;
                   } else if (retryEvent.type === 'error') {
+                    // Handle TOO_MANY_HOLDINGS during the PRECOMPUTE_ALLOCATIONS retry.
+                    // This happens when returns weren't captured alongside allocations
+                    // (e.g., Claude only requested allocation tools in its first batch).
+                    if (retryEvent.error === 'TOO_MANY_HOLDINGS' && retryEvent.toolsToExecute) {
+                      console.log(`[Client] 🔄 Allocations retry triggered TOO_MANY_HOLDINGS: ${retryEvent.toolsToExecute.length} return tools needed`);
+                      setAnalysisProgress(50);
+                      setAnalysisProgressLabel(`Fetching returns for ${retryEvent.toolsToExecute.length} holdings...`);
+
+                      // Split into Yahoo Finance (fast) and Morningstar (slow), same as main handler
+                      const yahooFinanceTools = retryEvent.toolsToExecute.filter((tool: any) => tool.name === 'search_holding_return');
+                      const morningstarTools = retryEvent.toolsToExecute.filter((tool: any) => tool.name === 'search_fund_return_morningstar');
+
+                      const MORNINGSTAR_BATCH_SIZE = 6;
+                      const morningstarBatches: any[][] = [];
+                      for (let mi = 0; mi < morningstarTools.length; mi += MORNINGSTAR_BATCH_SIZE) {
+                        morningstarBatches.push(morningstarTools.slice(mi, mi + MORNINGSTAR_BATCH_SIZE));
+                      }
+
+                      console.log(`[Client] Split: ${yahooFinanceTools.length} Yahoo Finance, ${morningstarTools.length} Morningstar (${morningstarBatches.length} batches)`);
+
+                      let allReturns: any[] = [];
+
+                      try {
+                        const returnPromises: Promise<any[]>[] = [];
+
+                        if (yahooFinanceTools.length > 0) {
+                          returnPromises.push(
+                            fetch('/api/fetch-returns', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ tools: yahooFinanceTools }),
+                            }).then(async (resp) => {
+                              if (!resp.ok) throw new Error(`Yahoo Finance fetch failed: HTTP ${resp.status}`);
+                              const data = await resp.json();
+                              console.log(`[Client] ✅ Yahoo Finance returns: ${data.returns?.length ?? 0}`);
+                              return data.returns || [];
+                            })
+                          );
+                        }
+
+                        morningstarBatches.forEach((batch, idx) => {
+                          returnPromises.push(
+                            fetch('/api/fetch-returns', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ tools: batch }),
+                            }).then(async (resp) => {
+                              if (!resp.ok) throw new Error(`Morningstar batch ${idx + 1} failed: HTTP ${resp.status}`);
+                              const data = await resp.json();
+                              console.log(`[Client] ✅ Morningstar batch ${idx + 1} returns: ${data.returns?.length ?? 0}`);
+                              return data.returns || [];
+                            })
+                          );
+                        });
+
+                        const returnResults = await Promise.all(returnPromises);
+                        allReturns = returnResults.flat();
+                        console.log(`[Client] ✅ Got ${allReturns.length} returns total`);
+                      } catch (returnError) {
+                        console.warn('[Client] ⚠️ Return fetch failed, continuing without:', returnError);
+                      }
+
+                      setAnalysisProgress(75);
+                      setAnalysisProgressLabel('Completing analysis with all fetched data...');
+
+                      // Final /api/analyze call: with both precomputed allocations AND returns
+                      const finalRetryResponse = await fetch('/api/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          ...requestData,
+                          precomputedAllocations,
+                          precomputedReturns: allReturns,
+                        }),
+                      });
+
+                      if (!finalRetryResponse.ok || !finalRetryResponse.body) {
+                        const errJson = await finalRetryResponse.json().catch(() => ({}));
+                        throw new Error((errJson as any).error || 'Final retry analysis failed');
+                      }
+
+                      const finalReader = finalRetryResponse.body.getReader();
+                      const finalDecoder = new TextDecoder();
+                      let finalBuffer = '';
+
+                      while (true) {
+                        const { value: fVal, done: fDone } = await finalReader.read();
+                        if (fDone) break;
+                        finalBuffer += finalDecoder.decode(fVal, { stream: true });
+                        const finalParts = finalBuffer.split('\n\n');
+                        finalBuffer = finalParts.pop() ?? '';
+
+                        for (const fp of finalParts) {
+                          const fl = fp.trim();
+                          if (!fl.startsWith('data: ')) continue;
+                          const fe = JSON.parse(fl.slice(6));
+
+                          if (fe.type === 'progress') {
+                            const scaledPct = 75 + Math.round((fe.step / fe.total) * 25);
+                            setAnalysisProgress(scaledPct);
+                            setAnalysisProgressLabel(fe.label ?? undefined);
+                          } else if (fe.type === 'result') {
+                            setAnalysisResult(fe.data.analysis);
+                            setAnalysisProgress(100);
+                            setTimeout(() => {
+                              document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' });
+                            }, 100);
+                            return;
+                          } else if (fe.type === 'error') {
+                            throw new Error(fe.error || 'Final retry analysis failed');
+                          }
+                        }
+                      }
+
+                      return; // Completed 3-call flow (allocations → returns → analyze)
+                    }
+
                     throw new Error(retryEvent.error || 'Retry analysis (allocations) failed');
                   }
                 }
