@@ -337,19 +337,18 @@ export async function analysePortfolioWithTools({
 
         // OPTIMIZATION: Reduce max_tokens to speed up final generation when:
         // - Holdings are missing return data (tools are being called)
-        // - AND risk summary calculations are enabled (more processing needed)
         // This prevents timeout when many managed funds need Morningstar scraping
-        if (!tokensReduced && includeRiskSummary && !hasPrecomputedReturns) {
+        if (!tokensReduced && !hasPrecomputedReturns) {
           const returnFetchingTools = toolUseBlocks.filter(block =>
             block.name === 'search_holding_return' ||
             block.name === 'search_fund_return_morningstar'
           );
 
-          // DETECTION: If > 12 return-fetching tools + risk summary enabled,
-          // the analysis will likely timeout. Abort early and let frontend use 2-call flow.
+          // DETECTION: If > 12 return-fetching tools, the analysis will likely timeout.
+          // Abort early and let frontend use 2-call flow.
           // SKIP this check if hasPrecomputedReturns=true (we're already in the retry flow)
           if (returnFetchingTools.length > 12) {
-            console.log(`[Claude] 🚨 TOO MANY HOLDINGS DETECTED: ${returnFetchingTools.length} return-fetching tools + risk summary enabled`);
+            console.log(`[Claude] 🚨 TOO MANY HOLDINGS DETECTED: ${returnFetchingTools.length} return-fetching tools`);
             console.log(`[Claude] Aborting early to prevent timeout. Frontend will use 2-call flow.`);
 
             // Also capture any allocation tools in this batch so frontend can fetch them
