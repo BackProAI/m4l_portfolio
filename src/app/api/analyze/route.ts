@@ -24,6 +24,7 @@ const AnalyseRequestSchema = z.object({
     isIndustrySuperFund: z.boolean(),
     industrySuperFundName: z.string().optional(),
     industrySuperFundRiskProfile: z.enum(['High Growth', 'Growth', 'Balanced', 'Conservative', 'Defensive', '']).optional(),
+    annualDrawdown: z.number().positive().optional(),
   }).refine(
     (data) => {
       // If industry super fund is true, name and risk profile are required

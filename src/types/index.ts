@@ -34,6 +34,7 @@ export interface InvestorProfile {
   isIndustrySuperFund: boolean | undefined; // Question 6: Is this an industry super fund?
   industrySuperFundName?: string; // Required if isIndustrySuperFund = true
   industrySuperFundRiskProfile?: InvestorType | ''; // Required if isIndustrySuperFund = true
+  annualDrawdown?: number; // Optional: expected annual withdrawal amount in AUD
 }
 
 // File Upload Types
@@ -75,6 +76,7 @@ export interface ChartData {
   portfolioValue: number;
   holdingsPerformance?: HoldingPerformance[]; // Optional: Detailed holdings analysis with performance data
   portfolioRisk?: PortfolioRiskSummary; // Optional: Asset-class level risk metrics
+  longevityProjection?: LongevityProjection; // Optional: Portfolio longevity projection
 }
 
 export interface AllocationItem {
@@ -182,4 +184,23 @@ export interface EmailResponse {
   success: boolean;
   message: string;
   error?: string;
+}
+
+// Longevity Projection Types
+// ============================================================================
+
+export interface LongevityProjectionPoint {
+  year: number; // Years from now
+  age: number; // Investor age at this point
+  nominalBalance: number; // Balance in nominal (today's) dollars
+  realBalance: number; // Balance in real (inflation-adjusted) dollars
+}
+
+export interface LongevityProjection {
+  points: LongevityProjectionPoint[];
+  yearsUntilDepletion: number | null; // null if portfolio lasts beyond maxYears
+  depletionAge: number | null; // null if portfolio lasts beyond maxYears
+  inflationRate: number; // Decimal, e.g. 0.03 for 3%
+  annualDrawdown: number; // Annual withdrawal amount in AUD
+  expectedReturn: number; // Weighted portfolio expected return (decimal)
 }

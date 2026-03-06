@@ -253,6 +253,28 @@ export function QuestionnaireSection({
               </div>
             </>
           )}
+
+          {/* Optional: Annual Drawdown */}
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
+              Expected Annual Drawdown ($) <span className="text-neutral-400 font-normal">(optional)</span>
+            </label>
+            <p className="text-xs text-neutral-500 mb-2">
+              How much do you plan to withdraw from this portfolio each year? Used to generate a longevity projection.
+            </p>
+            <input
+              type="number"
+              min="0"
+              step="1000"
+              placeholder="e.g., 50000"
+              value={profile.annualDrawdown ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value;
+                handleChange('annualDrawdown', raw === '' ? undefined : Math.max(0, Number(raw)));
+              }}
+              className="w-full px-4 py-2.5 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+            />
+          </div>
         </div>
 
         {/* Completion indicator */}
@@ -271,7 +293,7 @@ export function QuestionnaireSection({
                   clipRule="evenodd"
                 />
               </svg>
-              All questions answered! You can now proceed to upload your portfolio documents.
+              All questions answered! You can now fill in the optional drawdown above, then upload your portfolio documents.
             </p>
           </div>
         )}

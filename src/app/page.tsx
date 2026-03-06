@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { QuestionnaireSection } from '@/components/QuestionnaireSection';
 import { FileUploadZone } from '@/components/FileUploadZone';
 import { LoadingAnimation } from '@/components/LoadingAnimation';
 import { PortfolioCharts } from '@/components/PortfolioCharts';
+import { LongevityProjectionChart } from '@/components/LongevityProjectionChart';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Alert } from '@/components/ui/Alert';
@@ -13,6 +14,8 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/Moda
 import type { InvestorProfile, UploadedFile, AnalysisResult } from '@/types';
 import { parseFile } from '@/lib/fileParser';
 import { generatePortfolioPDF } from '@/lib/pdfGeneratorV2';
+import { ASSET_CLASS_METRICS } from '@/lib/assetClassData';
+import { calculateLongevityProjection, ageRangeToMidpoint } from '@/lib/longevityProjection';
 
 export default function Home() {
   // State for investor profile
@@ -48,6 +51,45 @@ export default function Home() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [showContactModal, setShowContactModal] = useState(false);
+
+  // Inflation rate (fetched server-side via /api/inflation, default 3%)
+  const [inflationRate, setInflationRate] = useState<number>(0.03);
+
+  useEffect(() => {
+    fetch('/api/inflation')
+      .then((r) => r.json())
+      .then((d) => { if (typeof d.inflationRate === 'number') setInflationRate(d.inflationRate); })
+      .catch(() => { /* keep default 3% */ });
+  }, []);
+
+  // Longevity projection — computed from analysis result + profile inputs
+  const longevityProjection = useMemo(() => {
+    if (!analysisResult || !profile.annualDrawdown || profile.annualDrawdown <= 0) return null;
+    const portfolioValue = analysisResult.chartData.portfolioValue;
+    if (!portfolioValue || portfolioValue <= 0) return null;
+
+    // Weighted expected return from asset allocation using static asset class metrics
+    const allocation = analysisResult.chartData.assetAllocation;
+    let weightedReturn = 0;
+    let totalWeight = 0;
+    for (const item of allocation) {
+      const metrics = ASSET_CLASS_METRICS[item.name];
+      if (metrics) {
+        const w = item.percentage / 100;
+        weightedReturn += metrics.expectedReturn * w;
+        totalWeight += w;
+      }
+    }
+    const expectedReturn = totalWeight > 0 ? weightedReturn / totalWeight : 0.05;
+
+    return calculateLongevityProjection({
+      portfolioValue,
+      annualDrawdown: profile.annualDrawdown,
+      expectedReturn,
+      inflationRate,
+      currentAge: ageRangeToMidpoint(profile.ageRange),
+    });
+  }, [analysisResult, profile.annualDrawdown, profile.ageRange, inflationRate]);
 
   // Handle file changes and auto-parse
   const handleFilesChange = useCallback(async (newFiles: UploadedFile[]) => {
@@ -120,11 +162,12 @@ export default function Home() {
   const canAnalyse = isQuestionnaireComplete && (hasFiles || hasPastedContent) && !hasConflict;
 
   // Auto-scroll to file upload when questionnaire is complete
+  // Uses a 3-second delay so the user can fill in the optional drawdown field first
   useEffect(() => {
     if (isQuestionnaireComplete) {
       setTimeout(() => {
         document.getElementById('file-upload-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 300);
+      }, 2000);
     }
   }, [isQuestionnaireComplete]);
 
@@ -1065,6 +1108,13 @@ export default function Home() {
               />
             </div>
 
+            {/* Longevity Projection Chart */}
+            {longevityProjection && (
+              <div id="longevity-projection">
+                <LongevityProjectionChart projection={longevityProjection} />
+              </div>
+            )}
+
             {/* Detailed Analysis */}
             <div id="detailed-analysis">
               <Card>
@@ -1111,6 +1161,7 @@ export default function Home() {
                       chartData: analysisResult.chartData,
                       analysisMarkdown: analysisResult.markdown,
                       userName: profile.name,
+                      longevityProjection: longevityProjection ?? undefined,
                     });
                     
                     // Show custom modal after successful download

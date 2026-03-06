@@ -1,11 +1,12 @@
 import { pdf } from '@react-pdf/renderer';
-import type { ChartData } from '@/types';
+import type { ChartData, LongevityProjection } from '@/types';
 import { PortfolioPdfDocument } from '@/lib/portfolioPdfDocument';
 
 interface GeneratePortfolioPDFInput {
   chartData: ChartData;
   analysisMarkdown: string;
   userName?: string;
+  longevityProjection?: LongevityProjection;
 }
 
 function buildFileName(userName?: string): string {
@@ -18,11 +19,13 @@ export async function generatePortfolioPDF({
   chartData,
   analysisMarkdown,
   userName,
+  longevityProjection,
 }: GeneratePortfolioPDFInput): Promise<void> {
   const doc = (
     <PortfolioPdfDocument
       chartData={chartData}
       analysisMarkdown={analysisMarkdown}
+      longevityProjection={longevityProjection}
     />
   );
 

@@ -11,7 +11,7 @@ import {
   Rect,
   Line,
 } from '@react-pdf/renderer';
-import type { ChartData, HoldingPerformance } from '@/types';
+import type { ChartData, HoldingPerformance, LongevityProjection } from '@/types';
 
 // ============================================================================
 // Portfolio PDF Document Component
@@ -184,6 +184,7 @@ interface PortfolioPdfDocumentProps {
   chartData: ChartData;
   analysisMarkdown: string;
   generatedDate?: string;
+  longevityProjection?: LongevityProjection;
 }
 
 // Helper: Convert degrees to radians
@@ -803,6 +804,155 @@ const HistoricalPerformanceChart = ({ holdings }: { holdings: HoldingPerformance
 };
 
 
+// Component: Longevity Projection with SVG area chart
+const LongevityProjectionPdfSection = ({ data }: { data: LongevityProjection }) => {
+  const { points, depletionAge, yearsUntilDepletion, inflationRate, annualDrawdown, expectedReturn } = data;
+
+  const headline = depletionAge
+    ? `Portfolio projected to last until age ${depletionAge} (${yearsUntilDepletion} years)`
+    : `Portfolio projected to last ${points[points.length - 1].year}+ years`;
+
+  const headlineColor = depletionAge
+    ? depletionAge < 75
+      ? COLORS.red
+      : COLORS.gold
+    : COLORS.success;
+
+  // SVG chart dimensions
+  const chartWidth = 500;
+  const chartHeight = 180;
+  const mTop = 20;
+  const mRight = 20;
+  const mBottom = 30;
+  const mLeft = 60;
+  const plotW = chartWidth - mLeft - mRight;
+  const plotH = chartHeight - mTop - mBottom;
+
+  const ages = points.map((p) => p.age);
+  const minAge = ages[0];
+  const maxAge = ages[ages.length - 1];
+  const maxBalance = Math.max(...points.map((p) => Math.max(p.nominalBalance, p.realBalance)), 1);
+
+  const xScale = (age: number) => mLeft + ((age - minAge) / Math.max(maxAge - minAge, 1)) * plotW;
+  const yScale = (val: number) => mTop + plotH - (val / maxBalance) * plotH;
+
+  // Build SVG path strings
+  const realAreaD =
+    points.reduce((d, p, i) => {
+      const x = xScale(p.age);
+      const y = yScale(Math.max(0, p.realBalance));
+      return i === 0 ? `M ${x} ${y}` : `${d} L ${x} ${y}`;
+    }, '') +
+    ` L ${xScale(points[points.length - 1].age)} ${mTop + plotH} L ${xScale(points[0].age)} ${mTop + plotH} Z`;
+
+  const nominalLineD = points.reduce((d, p, i) => {
+    const x = xScale(p.age);
+    const y = yScale(Math.max(0, p.nominalBalance));
+    return i === 0 ? `M ${x} ${y}` : `${d} L ${x} ${y}`;
+  }, '');
+
+  // Y-axis tick values
+  const yTicks = [0, 0.25, 0.5, 0.75, 1.0].map((f) => ({
+    value: maxBalance * f,
+    y: yScale(maxBalance * f),
+  }));
+
+  // X-axis ticks (~5 evenly spaced)
+  const ageRange = maxAge - minAge;
+  const xTickStep = Math.ceil(ageRange / 5 / 5) * 5;
+  const xTicks: number[] = [];
+  for (let a = minAge; a <= maxAge; a += xTickStep) xTicks.push(a);
+  if (!xTicks.includes(maxAge)) xTicks.push(maxAge);
+
+  const formatK = (v: number) => {
+    if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
+    return `$0`;
+  };
+
+  return (
+    <View style={styles.card}>
+      <Text style={[styles.cardTitle, { fontSize: 13, marginBottom: 8 }]}>Portfolio Longevity Projection</Text>
+
+      {/* Headline */}
+      <View style={{ backgroundColor: headlineColor + '15', borderLeftWidth: 3, borderLeftColor: headlineColor, padding: 8, borderRadius: 4, marginBottom: 10 }}>
+        <Text style={{ fontSize: 11, fontWeight: 'bold', color: headlineColor }}>{headline}</Text>
+        <Text style={{ fontSize: 8, color: COLORS.gray600, marginTop: 2 }}>
+          Expected return {(expectedReturn * 100).toFixed(1)}%  |  Inflation {(inflationRate * 100).toFixed(1)}%  |  Annual drawdown ${annualDrawdown.toLocaleString()}
+        </Text>
+      </View>
+
+      {/* KPI row */}
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+        <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 8, borderRadius: 4 }}>
+          <Text style={{ fontSize: 7, color: COLORS.gray600, marginBottom: 2 }}>Annual Drawdown</Text>
+          <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.gray800 }}>${annualDrawdown.toLocaleString()}</Text>
+        </View>
+        <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 8, borderRadius: 4 }}>
+          <Text style={{ fontSize: 7, color: COLORS.gray600, marginBottom: 2 }}>Expected Return</Text>
+          <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.gray800 }}>{(expectedReturn * 100).toFixed(1)}% p.a.</Text>
+        </View>
+        <View style={{ flex: 1, backgroundColor: COLORS.gray50, padding: 8, borderRadius: 4 }}>
+          <Text style={{ fontSize: 7, color: COLORS.gray600, marginBottom: 2 }}>Inflation Rate</Text>
+          <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.gray800 }}>{(inflationRate * 100).toFixed(1)}% p.a.</Text>
+        </View>
+      </View>
+
+      {/* SVG Area Chart */}
+      <Svg width={chartWidth} height={chartHeight}>
+        {/* Grid lines + Y labels */}
+        {yTicks.map((tick, i) => (
+          <React.Fragment key={i}>
+            <Line x1={mLeft} y1={tick.y} x2={mLeft + plotW} y2={tick.y} stroke={COLORS.gray200} strokeWidth={0.8} strokeDasharray="3 2" />
+            <Text x={mLeft - 4} y={tick.y + 3} style={{ fontSize: 7 }} fill={COLORS.gray600} textAnchor="end">
+              {formatK(tick.value)}
+            </Text>
+          </React.Fragment>
+        ))}
+
+        {/* Real balance filled area */}
+        <Path d={realAreaD} fill={COLORS.primary} opacity={0.18} />
+        {/* Real balance line */}
+        <Path d={realAreaD.split(' L ')[0] + points.slice(1).reduce((d, p) => `${d} L ${xScale(p.age)} ${yScale(Math.max(0, p.realBalance))}`, '')} fill="none" stroke={COLORS.primary} strokeWidth={2} />
+        {/* Nominal balance dashed line */}
+        <Path d={nominalLineD} fill="none" stroke={COLORS.accent} strokeWidth={1.5} strokeDasharray="4 3" />
+
+        {/* X axis */}
+        <Line x1={mLeft} y1={mTop + plotH} x2={mLeft + plotW} y2={mTop + plotH} stroke={COLORS.gray400} strokeWidth={1} />
+        {/* Y axis */}
+        <Line x1={mLeft} y1={mTop} x2={mLeft} y2={mTop + plotH} stroke={COLORS.gray400} strokeWidth={1} />
+
+        {/* X labels */}
+        {xTicks.map((age, i) => (
+          <Text key={i} x={xScale(age)} y={mTop + plotH + 12} style={{ fontSize: 7 }} fill={COLORS.gray600} textAnchor="middle">
+            {age}
+          </Text>
+        ))}
+
+        {/* Depletion marker */}
+        {depletionAge && (
+          <React.Fragment>
+            <Line x1={xScale(depletionAge)} y1={mTop} x2={xScale(depletionAge)} y2={mTop + plotH} stroke={COLORS.red} strokeWidth={1} strokeDasharray="4 3" />
+            <Text x={xScale(depletionAge)} y={mTop - 5} style={{ fontSize: 7 }} fill={COLORS.red} textAnchor="middle">
+              Age {depletionAge}
+            </Text>
+          </React.Fragment>
+        )}
+
+        {/* Legend */}
+        <Rect x={mLeft} y={mTop + plotH + 18} width={8} height={8} fill={COLORS.primary} opacity={0.6} />
+        <Text x={mLeft + 10} y={mTop + plotH + 25} style={{ fontSize: 7 }} fill={COLORS.gray800}>Real (inflation-adj.)</Text>
+        <Rect x={mLeft + 120} y={mTop + plotH + 18} width={8} height={8} fill={COLORS.accent} />
+        <Text x={mLeft + 130} y={mTop + plotH + 25} style={{ fontSize: 7 }} fill={COLORS.gray800}>Nominal</Text>
+      </Svg>
+
+      <Text style={{ fontSize: 7, color: COLORS.gray400, marginTop: 4 }}>
+        Real return = nominal return − inflation. Real balance shows purchasing power in today's dollars.
+      </Text>
+    </View>
+  );
+};
+
 // Component: Format Markdown Analysis
 const AnalysisSection = ({ markdown }: { markdown: string }) => {
   // Handle empty or missing markdown
@@ -872,6 +1022,7 @@ export const PortfolioPdfDocument = ({
   chartData,
   analysisMarkdown,
   generatedDate,
+  longevityProjection,
 }: PortfolioPdfDocumentProps) => {
   const dateStr = generatedDate || new Date().toLocaleDateString('en-AU', {
     year: 'numeric',
@@ -915,6 +1066,11 @@ export const PortfolioPdfDocument = ({
         {/* Portfolio Risk Summary */}
         {chartData.portfolioRisk && (
           <PortfolioRiskSection data={chartData.portfolioRisk} />
+        )}
+
+        {/* Longevity Projection */}
+        {longevityProjection && (
+          <LongevityProjectionPdfSection data={longevityProjection} />
         )}
 
         {/* Holdings Performance Section */}
