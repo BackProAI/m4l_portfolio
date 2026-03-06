@@ -201,6 +201,7 @@ ${profile.includeRiskSummary ? `- Use the look-through asset class weights (from
 - Keep portfolioVariance and riskContribution as variance-scale values, and portfolioStandardDeviation as a decimal standard deviation (for example 0.08 for 8%). Provide variance contributions per asset class.
 - If you cannot obtain enough data to calculate the portfolio risk metrics, omit the portfolioRisk block entirely (do NOT fabricate values).
 - Include "Static Asset Class Data - Vanguard Capital Market Assumptions methodology" in the sources array.` : `- Use the look-through asset class weights (from the split above) for the assetAllocation array.
+- IMPORTANT: You MUST still call search_fund_asset_allocation for all diversified managed funds and ETFs that lack allocation data in the documents. This is required for accurate asset allocation display in the chart even without a Portfolio Risk Summary.
 - Do NOT include a portfolioRisk block in the JSON output. Do NOT call get_portfolio_risk_data, search_asset_class_metrics or search_asset_class_correlation. The user has not requested a Portfolio Risk Summary.`}`
 
   const diversificationSectionNumber = 5;
