@@ -736,86 +736,125 @@ export async function searchFundReturnMorningstar(
           // Modal may not appear — that's fine
         }
         
-        // Type into the nav bar search input and wait for autocomplete dropdown
+        // Click the "Search" trigger in the header to open the search overlay.
+        // The search input is hidden inside an overlay that only appears after clicking.
+        const inputSelector = 'input.mds-search-field__input__mca-dfd, input[type="search"], input[placeholder*="Search"], [class*="mds-search"] input, .search-bar input[type="text"]';
+        const resultSelector = 'a.mds-list-group__link__mca-dfd[href*="/investments/security/fund/"], .search-results a[href*="/investments/security/fund/"], .mds-search-results__mca-dfd a[href*="/investments/security/fund/"]';
+
+        try {
+          const searchTriggerClicked = await searchPage.evaluate(() => {
+            // Strategy 1: Find clickable element with exact "Search" text
+            const clickableEls = document.querySelectorAll('a, button, [role="button"]');
+            for (const el of clickableEls) {
+              if (el.textContent?.trim() === 'Search') {
+                (el as HTMLElement).click();
+                return true;
+              }
+            }
+            // Strategy 2: aria-label containing "Search" (but not the input itself)
+            const ariaEls = document.querySelectorAll('[aria-label*="Search" i]');
+            for (const el of ariaEls) {
+              if (el.tagName !== 'INPUT') {
+                (el as HTMLElement).click();
+                return true;
+              }
+            }
+            return false;
+          });
+          if (searchTriggerClicked) {
+            console.log(`[Morningstar] Puppeteer: clicked Search trigger to open overlay`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else {
+            console.log(`[Morningstar] Puppeteer: no Search trigger found, input may already be visible`);
+          }
+        } catch {
+          // Search trigger click may not be needed if input is already visible
+        }
+
+        // Type into the search input and wait for autocomplete dropdown
         const searchTerms = [apirCode, cleanedFundName];
-        
+
         for (const searchTerm of searchTerms) {
           if (fundId) break; // Already found
-          
+
           console.log(`[Morningstar] Typing "${searchTerm}" into search bar...`);
-          
-          // Find and click the search input to open the search bar
-          const inputFound = await searchPage.evaluate(() => {
-            // Try multiple selectors for the search input
-            const input = document.querySelector('input.mds-search-field__input__mca-dfd') 
-              || document.querySelector('input[placeholder*="Search"]')
-              || document.querySelector('.search-bar input[type="text"]');
+
+          // Find and click the search input
+          const inputFound = await searchPage.evaluate((sel) => {
+            const input = document.querySelector(sel);
             if (input) {
               (input as HTMLElement).click();
               (input as HTMLElement).focus();
               return true;
             }
             return false;
-          });
-          
+          }, inputSelector);
+
           if (!inputFound) {
             console.log(`[Morningstar] Could not find search input on page`);
             continue;
           }
-          
+
           // Clear any existing text and type the search term
-          await searchPage.evaluate(() => {
-            const input = document.querySelector('input.mds-search-field__input__mca-dfd')
-              || document.querySelector('input[placeholder*="Search"]')
-              || document.querySelector('.search-bar input[type="text"]');
-            if (input) (input as HTMLInputElement).value = '';
-          });
-          await searchPage.type(
-            'input.mds-search-field__input__mca-dfd, input[placeholder*="Search"], .search-bar input[type="text"]',
-            searchTerm,
-            { delay: 50 } // Simulate realistic typing to trigger autocomplete
-          );
-          
+          await searchPage.evaluate((sel) => {
+            const input = document.querySelector(sel);
+            if (input) {
+              (input as HTMLInputElement).value = '';
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          }, inputSelector);
+          await searchPage.type(inputSelector, searchTerm, { delay: 50 });
+
           // Wait for autocomplete dropdown results to appear
           console.log(`[Morningstar] Waiting for autocomplete results...`);
           try {
-            await searchPage.waitForSelector(
-              '.mds-search-results__mca-dfd a[href*="/investments/security/fund/"], .search-results a[href*="/investments/security/fund/"]',
-              { timeout: 8000 }
-            );
+            await searchPage.waitForSelector(resultSelector, { timeout: 8000 });
           } catch {
             console.log(`[Morningstar] No fund results appeared for "${searchTerm}"`);
             // Clear the input for the next search term
-            await searchPage.evaluate(() => {
-              const input = document.querySelector('input.mds-search-field__input__mca-dfd')
-                || document.querySelector('input[placeholder*="Search"]')
-                || document.querySelector('.search-bar input[type="text"]');
+            await searchPage.evaluate((sel) => {
+              const input = document.querySelector(sel);
               if (input) {
                 (input as HTMLInputElement).value = '';
                 input.dispatchEvent(new Event('input', { bubbles: true }));
               }
-            });
+            }, inputSelector);
             await new Promise(resolve => setTimeout(resolve, 500));
             continue;
           }
-          
+
           // Small extra wait for all results to render
           await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Extract fund IDs from the autocomplete dropdown
-          const dropdownFundIds = await searchPage.evaluate(() => {
-            const links = Array.from(document.querySelectorAll(
-              '.mds-search-results__mca-dfd a[href*="/investments/security/fund/"], .search-results a[href*="/investments/security/fund/"]'
-            ));
+
+          // Extract fund IDs and APIR codes from the autocomplete dropdown
+          const dropdownResults = await searchPage.evaluate((sel) => {
+            const links = Array.from(document.querySelectorAll(sel));
             return links.map(link => {
               const href = (link as HTMLAnchorElement).href || link.getAttribute('href') || '';
               const match = href.match(/\/investments\/security\/fund\/(\d+)/);
-              return match ? match[1] : null;
-            }).filter((id): id is string => id !== null);
-          });
-          
+              // Extract APIR code from metadata spans in the autocomplete result
+              const metadataSpans = link.querySelectorAll('[class*="mds-list-group-item__metadata-below-item"]');
+              const apirText = Array.from(metadataSpans)
+                .map(span => span.textContent?.trim() || '')
+                .find(text => /^[A-Z]{3}\d{4}AU$/i.test(text)) || null;
+              return { id: match ? match[1] : null, apir: apirText };
+            }).filter((r): r is { id: string; apir: string | null } => r.id !== null);
+          }, resultSelector);
+
+          const dropdownFundIds = dropdownResults.map(r => r.id);
           console.log(`[Morningstar] Autocomplete returned ${dropdownFundIds.length} fund IDs for "${searchTerm}": ${dropdownFundIds.join(', ')}`);
-          
+
+          // Quick check: if any autocomplete result shows the APIR code directly, use it
+          if (apirCode) {
+            const apirMatch = dropdownResults.find(r => r.apir?.toUpperCase() === apirCode!.toUpperCase());
+            if (apirMatch) {
+              fundId = apirMatch.id;
+              foundUrl = `https://www.morningstar.com.au/investments/security/fund/${fundId}`;
+              console.log(`[Morningstar] ✅ Search bar: APIR ${apirCode} matched directly in autocomplete, fund ID ${fundId}`);
+              break;
+            }
+          }
+
           // Verify each result by checking for APIR code on overview page
           for (const msId of dropdownFundIds) {
             if (seenIds.has(msId)) {
@@ -830,7 +869,7 @@ export async function searchFundReturnMorningstar(
               });
               if (verifyResp.ok) {
                 const html = await verifyResp.text();
-                if (html.includes(apirCode)) {
+                if (html.includes(apirCode!)) {
                   fundId = msId;
                   foundUrl = overviewUrl;
                   console.log(`[Morningstar] ✅ Search bar: APIR ${apirCode} confirmed on fund ID ${msId}`);
@@ -841,7 +880,7 @@ export async function searchFundReturnMorningstar(
               console.warn(`[Morningstar] Could not verify search bar result ${msId}:`, e);
             }
           }
-          
+
           // If only 1 result came back, trust it even without APIR page verification
           // (some overview pages may not include APIR in server-rendered HTML)
           if (!fundId && dropdownFundIds.length === 1 && searchTerm === apirCode) {
@@ -1386,6 +1425,199 @@ async function searchFundAssetAllocationMorningstar(
     if (!portfolioUrl && baseTicker) {
       portfolioUrl = `https://www.morningstar.com.au/investments/security/ASX/${baseTicker}/portfolio`;
       console.log(`[Morningstar Allocation] No Brave result found — trying direct ASX URL: ${portfolioUrl}`);
+    }
+
+    // Puppeteer search bar fallback — same approach as the returns function.
+    // Opens morningstar.com.au, clicks the Search trigger, types the search term,
+    // and extracts the fund URL from the autocomplete dropdown.
+    if (!portfolioUrl) {
+      // Extract APIR code from fund name if present (pattern: 3 letters + 4 digits + "AU")
+      let allocApirCode: string | undefined;
+      const apirMatch = fundName.match(/\b([A-Z]{3}\d{4}AU)\b/i);
+      if (apirMatch) {
+        allocApirCode = apirMatch[1].toUpperCase();
+        console.log(`[Morningstar Allocation] Extracted APIR code from fund name: ${allocApirCode}`);
+      }
+
+      const cleanedName = fundName
+        .replace(/\([^)]*\)/g, '')
+        .replace(/\$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const allocSearchTerms: string[] = [];
+      if (allocApirCode) allocSearchTerms.push(allocApirCode);
+      allocSearchTerms.push(cleanedName);
+
+      console.log(`[Morningstar Allocation] ⚠️ No URL from Brave search. Using Puppeteer search bar fallback...`);
+      let searchBrowser;
+      try {
+        searchBrowser = await launchBrowser();
+        const searchPage = await searchBrowser.newPage();
+        await searchPage.setViewport({ width: 1920, height: 1080 });
+
+        console.log(`[Morningstar Allocation] Puppeteer navigating to morningstar.com.au`);
+        await searchPage.goto('https://www.morningstar.com.au', { waitUntil: 'networkidle2', timeout: 30000 });
+
+        // Handle investor type modal
+        try {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const investorClicked = await searchPage.evaluate(() => {
+            const headings = Array.from(document.querySelectorAll('h5, h4, h3'));
+            for (const heading of headings) {
+              if (heading.textContent?.includes('Individual Investor')) {
+                const clickTarget = heading.closest('button') || heading.closest('div[role="button"]') || heading;
+                (clickTarget as HTMLElement).click();
+                return true;
+              }
+            }
+            return false;
+          });
+          if (investorClicked) {
+            console.log(`[Morningstar Allocation] Puppeteer: clicked Individual Investor`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await searchPage.evaluate(() => {
+              const buttons = Array.from(document.querySelectorAll('button'));
+              const confirmBtn = buttons.find(btn => btn.textContent?.trim() === 'Confirm');
+              if (confirmBtn) (confirmBtn as HTMLButtonElement).click();
+            });
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        } catch {
+          // Modal may not appear — that's fine
+        }
+
+        // Click the "Search" trigger in the header to open the search overlay
+        const allocInputSel = 'input.mds-search-field__input__mca-dfd, input[type="search"], input[placeholder*="Search"], [class*="mds-search"] input, .search-bar input[type="text"]';
+        const allocResultSel = 'a.mds-list-group__link__mca-dfd[href*="/investments/security/"], .search-results a[href*="/investments/security/"], .mds-search-results__mca-dfd a[href*="/investments/security/"]';
+
+        try {
+          const searchTriggerClicked = await searchPage.evaluate(() => {
+            const clickableEls = document.querySelectorAll('a, button, [role="button"]');
+            for (const el of clickableEls) {
+              if (el.textContent?.trim() === 'Search') {
+                (el as HTMLElement).click();
+                return true;
+              }
+            }
+            const ariaEls = document.querySelectorAll('[aria-label*="Search" i]');
+            for (const el of ariaEls) {
+              if (el.tagName !== 'INPUT') {
+                (el as HTMLElement).click();
+                return true;
+              }
+            }
+            return false;
+          });
+          if (searchTriggerClicked) {
+            console.log(`[Morningstar Allocation] Puppeteer: clicked Search trigger to open overlay`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else {
+            console.log(`[Morningstar Allocation] Puppeteer: no Search trigger found, input may already be visible`);
+          }
+        } catch {
+          // Search trigger click may not be needed
+        }
+
+        for (const searchTerm of allocSearchTerms) {
+          if (portfolioUrl) break;
+
+          console.log(`[Morningstar Allocation] Typing "${searchTerm}" into search bar...`);
+
+          const inputFound = await searchPage.evaluate((sel) => {
+            const input = document.querySelector(sel);
+            if (input) {
+              (input as HTMLElement).click();
+              (input as HTMLElement).focus();
+              return true;
+            }
+            return false;
+          }, allocInputSel);
+
+          if (!inputFound) {
+            console.log(`[Morningstar Allocation] Could not find search input on page`);
+            continue;
+          }
+
+          // Clear + type
+          await searchPage.evaluate((sel) => {
+            const input = document.querySelector(sel);
+            if (input) {
+              (input as HTMLInputElement).value = '';
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          }, allocInputSel);
+          await searchPage.type(allocInputSel, searchTerm, { delay: 50 });
+
+          // Wait for autocomplete results
+          console.log(`[Morningstar Allocation] Waiting for autocomplete results...`);
+          try {
+            await searchPage.waitForSelector(allocResultSel, { timeout: 8000 });
+          } catch {
+            console.log(`[Morningstar Allocation] No results appeared for "${searchTerm}"`);
+            await searchPage.evaluate((sel) => {
+              const input = document.querySelector(sel);
+              if (input) {
+                (input as HTMLInputElement).value = '';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+            }, allocInputSel);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            continue;
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          // Extract results from autocomplete dropdown
+          const dropdownResults = await searchPage.evaluate((sel) => {
+            const links = Array.from(document.querySelectorAll(sel));
+            return links.map(link => {
+              const href = (link as HTMLAnchorElement).href || link.getAttribute('href') || '';
+              // Match /fund/{id}, /ASX/{ticker}, /etf/{id}, etc.
+              const match = href.match(/\/investments\/security\/(\w+)\/([A-Za-z0-9]+)/);
+              const metadataSpans = link.querySelectorAll('[class*="mds-list-group-item__metadata-below-item"]');
+              const apirText = Array.from(metadataSpans)
+                .map(span => span.textContent?.trim() || '')
+                .find(text => /^[A-Z]{3}\d{4}AU$/i.test(text)) || null;
+              return {
+                secType: match ? match[1] : null,
+                secId: match ? match[2] : null,
+                apir: apirText,
+              };
+            }).filter((r): r is { secType: string; secId: string; apir: string | null } => r.secType !== null && r.secId !== null);
+          }, allocResultSel);
+
+          console.log(`[Morningstar Allocation] Autocomplete returned ${dropdownResults.length} results for "${searchTerm}"`);
+
+          // Match by APIR if available
+          if (allocApirCode) {
+            const apirHit = dropdownResults.find(r => r.apir?.toUpperCase() === allocApirCode!.toUpperCase());
+            if (apirHit) {
+              portfolioUrl = `https://www.morningstar.com.au/investments/security/${apirHit.secType}/${apirHit.secId}/portfolio`;
+              console.log(`[Morningstar Allocation] ✅ APIR ${allocApirCode} matched in autocomplete -> ${portfolioUrl}`);
+              break;
+            }
+          }
+
+          // Otherwise use the first result
+          if (dropdownResults.length > 0) {
+            const first = dropdownResults[0];
+            portfolioUrl = `https://www.morningstar.com.au/investments/security/${first.secType}/${first.secId}/portfolio`;
+            console.log(`[Morningstar Allocation] ✅ Using first autocomplete result -> ${portfolioUrl}`);
+            break;
+          }
+        }
+
+        await searchPage.close();
+        if (searchBrowser) {
+          try { await searchBrowser.close(); } catch { /* ignore */ }
+        }
+      } catch (e) {
+        console.warn(`[Morningstar Allocation] Puppeteer search bar failed:`, e);
+        if (searchBrowser) {
+          try { await searchBrowser.close(); } catch { /* ignore */ }
+        }
+      }
     }
 
     if (!portfolioUrl) {
