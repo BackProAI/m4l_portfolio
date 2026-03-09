@@ -1051,6 +1051,15 @@ export async function searchFundReturnMorningstar(
       console.log(`[Morningstar] Error handling modal:`, e);
     }
 
+    // Fast-fail if Morningstar returned a "Service Unavailable" JSON response.
+    // The page body will literally be {"message":"Service Unavailable"} when rate-limited.
+    // Detecting this immediately saves the full 40s waitForSelector timeout.
+    const preCheckBody = await page.evaluate(() => document.body.innerText.trim().substring(0, 150));
+    if (preCheckBody.toLowerCase().includes('service unavailable')) {
+      console.log(`[Morningstar] Detected Service Unavailable before table wait — failing fast`);
+      throw new Error('Service Unavailable - Morningstar rate limited');
+    }
+
     // STEP 1: Wait for initial performance table to load FIRST
     // Timeout reduced to 40s to fail faster on broken pages (Vercel 300s limit)
     // If table doesn't appear in 40s, page is likely broken anyway
@@ -1745,6 +1754,13 @@ async function searchFundAssetAllocationMorningstar(
       }
     } catch (e) {
       console.log(`[Morningstar Allocation] Error handling modal:`, e);
+    }
+
+    // Fast-fail if Morningstar returned a "Service Unavailable" JSON response.
+    const allocPreCheckBody = await page.evaluate(() => document.body.innerText.trim().substring(0, 150));
+    if (allocPreCheckBody.toLowerCase().includes('service unavailable')) {
+      console.log(`[Morningstar Allocation] Detected Service Unavailable before table wait — failing fast`);
+      throw new Error('Service Unavailable - Morningstar rate limited');
     }
 
     // Wait for the asset allocation table to load

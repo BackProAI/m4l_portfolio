@@ -782,11 +782,17 @@ export default function Home() {
                   }
                 }
 
-                // Run all fetches in parallel
-                const results = await Promise.all(fetchPromises);
+                // Run all fetches in parallel — allSettled so one failed batch doesn't discard
+                // allocations that already succeeded (the previous Promise.all bug).
+                const settled = await Promise.allSettled(fetchPromises);
 
-                // Separate results by type
-                for (const result of results) {
+                // Separate results by type; log and skip rejected batches
+                for (const s of settled) {
+                  if (s.status === 'rejected') {
+                    console.warn('[Client] ⚠️ A parallel fetch batch failed (skipping):', s.reason);
+                    continue;
+                  }
+                  const result = s.value;
                   if (result.type === 'allocations') {
                     precomputedAllocations = [...precomputedAllocations, ...result.data];
                   } else if (result.type === 'returns') {
@@ -901,8 +907,14 @@ export default function Home() {
                           );
                         });
 
-                        const returnResults = await Promise.all(returnPromises);
-                        allReturns = returnResults.flat();
+                        const returnSettled = await Promise.allSettled(returnPromises);
+                        for (const s of returnSettled) {
+                          if (s.status === 'rejected') {
+                            console.warn('[Client] ⚠️ A return batch failed (skipping):', s.reason);
+                          } else {
+                            allReturns.push(...s.value);
+                          }
+                        }
                         console.log(`[Client] ✅ Got ${allReturns.length} returns total`);
                       } catch (returnError) {
                         console.warn('[Client] ⚠️ Return fetch failed, continuing without:', returnError);
