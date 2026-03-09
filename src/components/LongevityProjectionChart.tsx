@@ -176,6 +176,21 @@ export function LongevityProjectionChart({ projection }: LongevityProjectionChar
           </ResponsiveContainer>
         </div>
 
+        {/* Years summary — real value only */}
+        <div className="mt-4 flex items-center justify-center gap-3 p-4 rounded-lg border border-neutral-200 bg-neutral-50">
+          <div className="text-center">
+            <p className="text-xs text-neutral-500 mb-0.5">Portfolio lasts (real value)</p>
+            <p className={`text-3xl font-bold ${yearsUntilDepletion ? (yearsUntilDepletion < 20 ? 'text-error' : 'text-warning') : 'text-success'}`}>
+              {yearsUntilDepletion ? `${yearsUntilDepletion} years` : `${points[points.length - 1].year}+ years`}
+            </p>
+            <p className="text-xs text-neutral-400 mt-0.5">
+              {yearsUntilDepletion
+                ? `Purchasing power exhausted at age ${depletionAge}`
+                : 'Portfolio survives the full projection period'}
+            </p>
+          </div>
+        </div>
+
         <p className="mt-3 text-xs text-neutral-400">
           Projection uses the Fisher approximation (real return = nominal return − inflation). Real balance
           reflects purchasing power in today&apos;s dollars. This is a mathematical projection, not financial
