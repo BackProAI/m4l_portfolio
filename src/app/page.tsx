@@ -24,7 +24,7 @@ export default function Home() {
     investorType: '',
     phase: '',
     ageRange: '',
-    fundCommentary: undefined,
+    fundCommentary: true,
     includeRiskSummary: undefined,
     isIndustrySuperFund: undefined,
     industrySuperFundName: undefined,

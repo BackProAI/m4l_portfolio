@@ -28,8 +28,8 @@ export function QuestionnaireSection({
     if (profile.investorType) count++;
     if (profile.phase) count++;
     if (profile.ageRange) count++;
-    if (typeof profile.fundCommentary === 'boolean') count++;
     if (typeof profile.includeRiskSummary === 'boolean') count++;
+    if (typeof profile.annualDrawdown === 'number') count++;
     if (typeof profile.isIndustrySuperFund === 'boolean') {
       count++;
       // If industry super fund is Yes, check conditional fields
@@ -43,7 +43,7 @@ export function QuestionnaireSection({
 
   // Calculate total required fields
   const totalFields = React.useMemo(() => {
-    let total = 7; // Base questions: name, investorType, phase, ageRange, fundCommentary, includeRiskSummary, isIndustrySuperFund
+    let total = 7; // Base questions: name, investorType, phase, ageRange, includeRiskSummary, annualDrawdown, isIndustrySuperFund
     if (profile.isIndustrySuperFund === true) {
       total += 2; // Add conditional fields: industrySuperFundName, industrySuperFundRiskProfile
     }
@@ -147,20 +147,20 @@ export function QuestionnaireSection({
             <option value="80+">80+</option>
           </Select>
 
-          {/* Question 4: Fund Commentary */}
+          {/* Question 5: Include Portfolio Risk Summary */}
           <Select
-            label="Give me a commentary on each managed fund?"
+            label="Include Portfolio Risk Summary? (Will take 5-7 minutes)"
             required
             value={
-              profile.fundCommentary === true
+              profile.includeRiskSummary === true
                 ? 'yes'
-                : profile.fundCommentary === false
+                : profile.includeRiskSummary === false
                 ? 'no'
                 : ''
             }
             onChange={(e) =>
               handleChange(
-                'fundCommentary',
+                'includeRiskSummary',
                 e.target.value === 'yes' ? true : e.target.value === 'no' ? false : undefined
               )
             }
@@ -169,31 +169,6 @@ export function QuestionnaireSection({
             <option value="yes">Yes</option>
             <option value="no">No</option>
           </Select>
-
-          {/* Question 5: Include Portfolio Risk Summary */}
-          <div className="md:col-span-2">
-            <Select
-              label="Include Portfolio Risk Summary? (Will take 5-7 minutes)"
-              required
-              value={
-                profile.includeRiskSummary === true
-                  ? 'yes'
-                  : profile.includeRiskSummary === false
-                  ? 'no'
-                  : ''
-              }
-              onChange={(e) =>
-                handleChange(
-                  'includeRiskSummary',
-                  e.target.value === 'yes' ? true : e.target.value === 'no' ? false : undefined
-                )
-              }
-            >
-              <option value="">Select an option...</option>
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </Select>
-          </div>
 
           {/* Question 6: Industry Super Fund - Full width span */}
           <div className="md:col-span-2">
@@ -254,13 +229,13 @@ export function QuestionnaireSection({
             </>
           )}
 
-          {/* Optional: Annual Drawdown */}
+          {/* Required: Annual Drawdown */}
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-neutral-700 mb-1">
-              Expected Annual Drawdown ($) <span className="text-neutral-400 font-normal">(optional)</span>
+              Expected Annual Drawdown ($) <span className="text-error">*</span>
             </label>
             <p className="text-xs text-neutral-500 mb-2">
-              How much do you plan to withdraw from this portfolio each year? Used to generate a longevity projection.
+              How much do you plan to withdraw from this portfolio each year? Used to generate a longevity projection. If none, enter 0.
             </p>
             <input
               type="number"
