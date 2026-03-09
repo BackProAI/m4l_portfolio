@@ -809,13 +809,16 @@ export default function Home() {
               setAnalysisProgress(40);
               setAnalysisProgressLabel('Completing analysis with fetched data...');
 
+              // NOTE: Do NOT send the piggy-backed partial returns as precomputedReturns here.
+              // Sending a partial set causes hasPrecomputedReturns=true on the backend, which
+              // removes ALL return tools from Claude — so remaining managed funds can never be
+              // looked up. Let the retry call detect them via TOO_MANY_HOLDINGS instead.
               const retryResponse = await fetch('/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   ...requestData,
                   precomputedAllocations,
-                  ...(precomputedReturns ? { precomputedReturns } : {}),
                 }),
               });
 
