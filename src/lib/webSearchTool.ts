@@ -703,6 +703,7 @@ export async function searchFundReturnMorningstar(
         browser = await launchBrowser();
         const searchPage = await browser.newPage();
         await searchPage.setViewport({ width: 1920, height: 1080 });
+        await searchPage.setExtraHTTPHeaders({ 'Accept-Encoding': 'gzip, deflate' });
         
         // Navigate to Morningstar homepage
         console.log(`[Morningstar] Puppeteer navigating to morningstar.com.au`);
@@ -934,6 +935,10 @@ export async function searchFundReturnMorningstar(
     
     // Set desktop viewport (Morningstar likely serves different HTML for mobile vs desktop)
     await page.setViewport({ width: 1920, height: 1080 });
+    
+    // Disable Brotli — Morningstar's CDN sometimes returns truncated Brotli responses
+    // which cause uncaught Z_BUF_ERROR crashes in Node's BrotliDecoder.
+    await page.setExtraHTTPHeaders({ 'Accept-Encoding': 'gzip, deflate' });
     
     // Navigate directly to performance page (modal will appear there)
     console.log(`[Morningstar] Navigating to performance page: ${performanceUrl}`);
@@ -1464,6 +1469,7 @@ async function searchFundAssetAllocationMorningstar(
         searchBrowser = await launchBrowser();
         const searchPage = await searchBrowser.newPage();
         await searchPage.setViewport({ width: 1920, height: 1080 });
+        await searchPage.setExtraHTTPHeaders({ 'Accept-Encoding': 'gzip, deflate' });
 
         console.log(`[Morningstar Allocation] Puppeteer navigating to morningstar.com.au`);
         await searchPage.goto('https://www.morningstar.com.au', { waitUntil: 'networkidle2', timeout: 30000 });
@@ -1641,6 +1647,9 @@ async function searchFundAssetAllocationMorningstar(
     browser = await launchBrowser();
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
+    // Disable Brotli — Morningstar's CDN sometimes returns truncated Brotli responses
+    // which cause uncaught Z_BUF_ERROR crashes in Node's BrotliDecoder.
+    await page.setExtraHTTPHeaders({ 'Accept-Encoding': 'gzip, deflate' });
     await page.goto(portfolioUrl, { waitUntil: 'networkidle2', timeout: 45000 });
 
     // Handle Morningstar's user type selection modal (same robust pattern as returns scraper)
