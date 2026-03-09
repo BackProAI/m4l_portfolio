@@ -484,6 +484,39 @@ export default function Home() {
                 }
                 
                 console.log(`[Client] ✅ Combined ${allReturns.length} returns${earlyAllocations.length > 0 ? ` + ${earlyAllocations.length} allocations` : ''} from all sources`);
+
+                // RETRY LOGIC: Retry failed allocations once
+                const allocsWithErrors = earlyAllocations.filter((item: any) => item.error);
+                if (allocsWithErrors.length > 0) {
+                  console.log(`[Client] 🔄 ${allocsWithErrors.length} allocations had errors, retrying...`);
+                  setAnalysisProgressLabel(`Retrying ${allocsWithErrors.length} failed allocation lookups...`);
+
+                  const allocToolsToRetry = allocsWithErrors.map((item: any) => {
+                    return earlyAllocationTools.find((tool: any) => tool.input.fund_name === item.holdingName);
+                  }).filter(Boolean);
+
+                  try {
+                    const allocRetryResp = await fetch('/api/fetch-allocations', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tools: allocToolsToRetry }),
+                    });
+                    if (allocRetryResp.ok) {
+                      const allocRetryData = await allocRetryResp.json();
+                      if (allocRetryData.success) {
+                        const errorNames = new Set(allocsWithErrors.map((a: any) => a.holdingName));
+                        earlyAllocations = [
+                          ...earlyAllocations.filter((a: any) => !errorNames.has(a.holdingName)),
+                          ...allocRetryData.allocations,
+                        ];
+                        const retryOk = allocRetryData.allocations.filter((a: any) => !a.error).length;
+                        console.log(`[Client] ✅ Allocation retry complete: ${retryOk}/${allocRetryData.allocations.length} succeeded`);
+                      }
+                    }
+                  } catch (allocRetryErr) {
+                    console.warn('[Client] ⚠️ Allocation retry failed, continuing with originals:', allocRetryErr);
+                  }
+                }
                 
                 // RETRY LOGIC: Identify items with errors (not "no data") and retry once
                 const itemsWithErrors = allReturns.filter((item: any) => item.error);
@@ -625,6 +658,39 @@ export default function Home() {
                         const allocResults = await Promise.all(allocPromises);
                         precomputedAllocations = allocResults.flat();
                         console.log(`[Client] ✅ Got ${precomputedAllocations.length} allocations total`);
+
+                        // RETRY LOGIC: Retry failed allocations once
+                        const allocsWithErrors = precomputedAllocations.filter((item: any) => item.error);
+                        if (allocsWithErrors.length > 0) {
+                          console.log(`[Client] 🔄 ${allocsWithErrors.length} allocations had errors, retrying...`);
+                          setAnalysisProgressLabel(`Retrying ${allocsWithErrors.length} failed allocation lookups...`);
+
+                          const allocToolsToRetry = allocsWithErrors.map((item: any) => {
+                            return retryEvent.allocationToolsToExecute.find((tool: any) => tool.input.fund_name === item.holdingName);
+                          }).filter(Boolean);
+
+                          try {
+                            const allocRetryResp = await fetch('/api/fetch-allocations', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ tools: allocToolsToRetry }),
+                            });
+                            if (allocRetryResp.ok) {
+                              const allocRetryData = await allocRetryResp.json();
+                              if (allocRetryData.success) {
+                                const errorNames = new Set(allocsWithErrors.map((a: any) => a.holdingName));
+                                precomputedAllocations = [
+                                  ...precomputedAllocations.filter((a: any) => !errorNames.has(a.holdingName)),
+                                  ...allocRetryData.allocations,
+                                ];
+                                const retryOk = allocRetryData.allocations.filter((a: any) => !a.error).length;
+                                console.log(`[Client] ✅ Allocation retry complete: ${retryOk}/${allocRetryData.allocations.length} succeeded`);
+                              }
+                            }
+                          } catch (allocRetryErr) {
+                            console.warn('[Client] ⚠️ Allocation retry failed, continuing with originals:', allocRetryErr);
+                          }
+                        }
                       } catch (allocError) {
                         console.warn('[Client] ⚠️ Allocation pre-fetch failed, retrying without:', allocError);
                       }
@@ -801,6 +867,39 @@ export default function Home() {
                 }
 
                 console.log(`[Client] ✅ Got ${precomputedAllocations.length} allocations${precomputedReturns ? ` + ${precomputedReturns.length} returns` : ''}`);
+
+                // RETRY LOGIC: Retry failed allocations once
+                const allocsWithErrors = precomputedAllocations.filter((item: any) => item.error);
+                if (allocsWithErrors.length > 0) {
+                  console.log(`[Client] 🔄 ${allocsWithErrors.length} allocations had errors, retrying...`);
+                  setAnalysisProgressLabel(`Retrying ${allocsWithErrors.length} failed allocation lookups...`);
+
+                  const allocToolsToRetry = allocsWithErrors.map((item: any) => {
+                    return event.allocationToolsToExecute.find((tool: any) => tool.input.fund_name === item.holdingName);
+                  }).filter(Boolean);
+
+                  try {
+                    const allocRetryResp = await fetch('/api/fetch-allocations', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tools: allocToolsToRetry }),
+                    });
+                    if (allocRetryResp.ok) {
+                      const allocRetryData = await allocRetryResp.json();
+                      if (allocRetryData.success) {
+                        const errorNames = new Set(allocsWithErrors.map((a: any) => a.holdingName));
+                        precomputedAllocations = [
+                          ...precomputedAllocations.filter((a: any) => !errorNames.has(a.holdingName)),
+                          ...allocRetryData.allocations,
+                        ];
+                        const retryOk = allocRetryData.allocations.filter((a: any) => !a.error).length;
+                        console.log(`[Client] ✅ Allocation retry complete: ${retryOk}/${allocRetryData.allocations.length} succeeded`);
+                      }
+                    }
+                  } catch (allocRetryErr) {
+                    console.warn('[Client] ⚠️ Allocation retry failed, continuing with originals:', allocRetryErr);
+                  }
+                }
               } catch (fetchError) {
                 // Non-fatal — retry analysis without precomputed data, Claude will try inline
                 console.warn('[Client] ⚠️ Parallel pre-fetch failed, retrying without precomputed data:', fetchError);
@@ -919,6 +1018,44 @@ export default function Home() {
                           }
                         }
                         console.log(`[Client] ✅ Got ${allReturns.length} returns total`);
+
+                        // RETRY LOGIC: Identify items with errors and retry once (mirrors main TOO_MANY_HOLDINGS handler)
+                        const itemsWithErrors = allReturns.filter((item: any) => item.error);
+                        if (itemsWithErrors.length > 0) {
+                          console.log(`[Client] 🔄 ${itemsWithErrors.length} items had errors, retrying...`);
+                          setAnalysisProgressLabel(`Retrying ${itemsWithErrors.length} failed scrapes...`);
+
+                          const toolsToRetry = itemsWithErrors.map((item: any) => {
+                            return retryEvent.toolsToExecute.find((tool: any) => {
+                              const toolHoldingName = tool.input.holding_name || tool.input.fund_name;
+                              return toolHoldingName === item.holdingName;
+                            });
+                          }).filter(Boolean);
+
+                          try {
+                            console.log(`[Client] 🔁 Retrying ${toolsToRetry.length} tools...`);
+                            const errorRetryResp = await fetch('/api/fetch-returns', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ tools: toolsToRetry }),
+                            });
+
+                            if (errorRetryResp.ok) {
+                              const errorRetryData = await errorRetryResp.json();
+                              if (errorRetryData.success) {
+                                const errorHoldingNames = new Set(itemsWithErrors.map((item: any) => item.holdingName));
+                                allReturns = [
+                                  ...allReturns.filter((item: any) => !errorHoldingNames.has(item.holdingName)),
+                                  ...errorRetryData.returns,
+                                ];
+                                const retrySuccessCount = errorRetryData.returns.filter((r: any) => r.totalReturn !== undefined).length;
+                                console.log(`[Client] ✅ Retry complete: ${retrySuccessCount}/${errorRetryData.returns.length} succeeded`);
+                              }
+                            }
+                          } catch (retryErr) {
+                            console.warn('[Client] ⚠️ Retry failed, continuing with original results:', retryErr);
+                          }
+                        }
                       } catch (returnError) {
                         console.warn('[Client] ⚠️ Return fetch failed, continuing without:', returnError);
                       }
